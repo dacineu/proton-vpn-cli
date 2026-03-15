@@ -17,7 +17,7 @@ You should have received a copy of the GNU General Public License
 along with ProtonVPN.  If not, see <https://www.gnu.org/licenses/>.
 """
 from typing import Optional
-from unittest.mock import AsyncMock, Mock, PropertyMock
+from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 import pytest
 
 import click
@@ -33,6 +33,13 @@ from proton.vpn.cli.core.exceptions import \
     RequiresHigherTierError
 from proton.vpn.session.exceptions import ServerNotFoundError
 from proton.vpn.session.servers.types import ServerFeatureEnum
+
+
+@pytest.fixture(autouse=True)
+def mock_daemon_running():
+    """Mock the daemon check to always return True for tests."""
+    with patch('proton.vpn.cli.commands.server.is_daemon_running', return_value=True):
+        yield
 
 
 @pytest.mark.parametrize("server_list_expired", [True, False])

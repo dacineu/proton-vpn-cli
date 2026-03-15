@@ -1,0 +1,18 @@
+[Unit]
+Description=Proton VPN Daemon
+Documentation=man:protonvpn(1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The daemon is provided by the proton-vpn-local-agent package.
+# This module can be run as: python3 -m proton.vpn.daemon
+ExecStart=/usr/bin/python3 -m proton.vpn.daemon
+Restart=on-failure
+RestartSec=5s
+# Provide a reasonable timeout for startup
+TimeoutStartSec=30s
+
+[Install]
+WantedBy=multi-user.target

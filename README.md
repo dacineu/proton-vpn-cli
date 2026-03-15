@@ -16,11 +16,12 @@ Current functionality:
 - Connect and disconnect from VPN servers
 - Select servers by country, city, or server ID
 - WireGuard protocol support
+- List available servers with filtering (`protonvpn servers list`)
+- Free tier can select servers by country or city
 
 Current limitations:
 - No advanced features (NetShield, kill switch, split tunneling, port forwarding)
 - Cannot run alongside the Proton VPN GUI app
-- No server list command (use connection options instead)
 
 We're actively developing additional features. Report issues and request features through https://protonvpn.com/support-form
 
@@ -42,6 +43,30 @@ You can find the latest beta release and installation instructions on our [Proto
 ### Dependencies
 
 For development purposes (within a virtual environment) see the required packages in the setup.py file, under `install_requires` and `extra_require`. As of now these packages will not be available on pypi. Also see [Virtual environment](#virtual-environment) below.
+
+### Daemon Service
+
+The Proton VPN CLI requires the `protonvpn` systemd service (daemon) to be running for connection operations. The daemon is provided by the `proton-vpn-local-agent` package (installed automatically as a dependency).
+
+To check if the daemon is active and enable it:
+
+```shell
+# Check status
+systemctl status protonvpn.service
+
+# If not running, start it
+sudo systemctl start protonvpn.service
+
+# Enable on boot
+sudo systemctl enable protonvpn.service
+```
+
+The CLI will display an error if the daemon is not running when attempting to connect or disconnect.
+
+### Non-root operation
+
+The CLI is designed to run without superuser privileges. All privileged operations are handled by the daemon via D-Bus. The current user must be authorized to communicate with the daemon (this is typically handled automatically by the package installation via Polkit rules).
+
 
 ### Virtual environment
 

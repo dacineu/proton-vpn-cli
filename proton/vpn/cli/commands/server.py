@@ -38,6 +38,8 @@ from proton.vpn.cli.commands.account import SIGNIN_COMMAND
 from proton.vpn.cli.commands.command_utils import (
     inform_that_expired_serverlist_will_be_updated_if_necessary,
     compose_requested_features,
+    is_daemon_running,
+    raise_daemon_not_running_error,
 )
 
 
@@ -84,6 +86,10 @@ async def connect(
     random: bool
 ):
     """Connect to Proton VPN"""
+    # Check that the daemon is running before attempting connection
+    if not is_daemon_running():
+        raise_daemon_not_running_error()
+
     controller = await Controller.create(params=ctx.obj, click_ctx=ctx)
     # Silence cancelled exceptions raised by tasks we don't need to wait for after connection.
     # For example, some tasks are usually created to process a second Connected state broadcasted
@@ -170,6 +176,9 @@ CONNECT_COMMAND = connect.name
 @run_async
 async def disconnect(ctx):
     """Disconnect from Proton VPN"""
+    if not is_daemon_running():
+        raise_daemon_not_running_error()
+
     controller = await Controller.create(params=ctx.obj, click_ctx=ctx)
     await controller.disconnect()
 
