@@ -1,0 +1,51 @@
+# proton-vpn-cli.install - post-install and pre-remove script for Arch Linux
+
+# Copyright (c) 2025 Proton AG
+# This file is part of Proton VPN.
+
+post_install() {
+    # Reload systemd daemon to pick up new service file
+    if systemctl --quiet is-active --user 2>/dev/null; then
+        systemctl daemon-reload 2>/dev/null
+    elif systemctl --quiet is-system-running 2>/dev/null; then
+        systemctl daemon-reload
+    fi
+
+    # Enable and start the service
+    if systemctl list-unit-files protonvpn.service 2>/dev/null | grep -q protonvpn.service; then
+        systemctl enable protonvpn.service 2>/dev/null
+        systemctl start protonvpn.service 2>/dev/null || true
+    fi
+}
+
+pre_remove() {
+    # Stop and disable the service before removing
+    if systemctl list-unit-files protonvpn.service 2>/dev/null | grep -q protonvpn.service; then
+        systemctl stop protonvpn.service 2>/dev/null || true
+        systemctl disable protonvpn.service 2>/dev/null || true
+    fi
+}
+
+post_remove() {
+    # Reload systemd daemon after removing service file
+    if systemctl --quiet is-active --user 2>/dev/null; then
+        systemctl daemon-reload 2>/dev/null
+    elif systemctl --quiet is-system-running 2>/dev/null; then
+        systemctl daemon-reload
+    fi
+}
+
+# Arch Linux will call these functions at appropriate times
+# $1 is the action (pre_install, post_install, pre_remove, post_remove)
+
+case "$1" in
+    post_install)
+        post_install
+        ;;
+    pre_remove)
+        pre_remove
+        ;;
+    post_remove)
+        post_remove
+        ;;
+esac

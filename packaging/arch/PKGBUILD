@@ -1,0 +1,60 @@
+# Maintainer: Proton Technologies AG <opensource@proton.me>
+# Contributor: dacineu <dacineu@pm.me>
+#
+# This PKGBUILD builds proton-vpn-cli for Arch Linux.
+# It includes integration with protonvpn.service (systemd) for non-root operation.
+
+pkgname=proton-vpn-cli
+pkgver=0.1.8
+pkgrel=1
+pkgdesc="Proton VPN CLI - Command-line interface for Proton VPN"
+arch=('any')
+url="https://github.com/ProtonMail/python-protonvpn-cli"
+license=('GPL3')
+depends=(
+    'python'
+    'python-click'
+    'python-dbus-fast'
+    'python-tabulate'
+    'proton-vpn-api-core>=4.14.3'
+    'proton-keyring-linux'
+    'proton-vpn-local-agent'  # Provides the daemon module
+)
+makedepends=(
+    'python-setuptools'
+    'python-pip'
+)
+install="${pkgname}.install"
+source=("https://github.com/ProtonMail/python-protonvpn-cli/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')  # Run makepkg -g to update
+
+# The GitHub tarball extracts to python-protonvpn-cli-0.1.8 (or similar).
+# We rename it in prepare() for consistency.
+prepare() {
+    cd "${srcdir}"
+    # Rename the first extracted subdirectory to pkgname-pkgver
+    local extracted_dir
+    extracted_dir=$(find . -maxdepth 1 -type d ! -name "." | head -n1)
+    if [[ -n "$extracted_dir" ]]; then
+        mv "$extracted_dir" "${pkgname}-${pkgver}"
+    fi
+}
+
+package() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+
+    # Install Python package
+    python -m pip install . --root="${pkgdir}" --optimize=1 --no-deps
+
+    # Install systemd service file
+    install -Dm644 "service/protonvpn.service" \
+        "${pkgdir}/usr/lib/systemd/system/protonvpn.service"
+
+    # Install documentation
+    install -Dm644 README.md \
+        "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+    install -Dm644 LICENSE \
+        "${pkgdir}/usr/share/doc/${pkgname}/LICENSE"
+    install -Dm644 COPYING.md \
+        "${pkgdir}/usr/share/doc/${pkgname}/COPYING.md"
+}

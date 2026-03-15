@@ -67,6 +67,41 @@ The CLI will display an error if the daemon is not running when attempting to co
 
 The CLI is designed to run without superuser privileges. All privileged operations are handled by the daemon via D-Bus. The current user must be authorized to communicate with the daemon (this is typically handled automatically by the package installation via Polkit rules).
 
+### Arch Linux
+
+For Arch Linux users, community-maintained PKGBUILD files are available in the `packaging/arch/` directory of this repository.
+
+To build and install:
+
+1. Ensure you have the required dependencies:
+   ```bash
+   sudo pacman -S --needed base-devel python python-pip
+   ```
+
+2. Navigate to the packaging directory:
+   ```bash
+   cd packaging/arch
+   ```
+
+3. Update the SHA256 checksum (optional if you use the provided script):
+   ```bash
+   ./update_checksums.sh
+   ```
+
+4. Build and install:
+   ```bash
+   makepkg -si
+   ```
+
+The package will:
+- Install the CLI and Python module
+- Install and enable the `protonvpn.service` daemon automatically
+- Set up documentation in `/usr/share/doc/proton-vpn-cli/`
+
+**Note**: The package depends on `proton-vpn-api-core`, `proton-keyring-linux`, and `proton-vpn-local-agent` which may need to be built from AUR if not available in official repositories.
+
+For more details on Arch packaging, see `packaging/arch/ARCH_LINUX_PACKAGING.md`.
+
 
 ### Virtual environment
 
