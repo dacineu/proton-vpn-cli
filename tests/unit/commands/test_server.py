@@ -245,11 +245,6 @@ def test_connect_fails_when_requested_features_require_higher_tier(
                f" Please use '{test_context.info_name} {CONNECT_COMMAND}' to connect "\
                "to available free servers or upgrade to access all servers."\
                in result.output
-    elif country or city:
-        assert "Location selection is not available on the free plan. "\
-               f"Please use '{test_context.info_name} {CONNECT_COMMAND}' to connect "\
-               "to available free servers or upgrade to choose your location."\
-               in result.output
     elif features:
         assert f"{printable_feature_type} servers are not available on the free plan. "\
                f"Please use '{test_context.info_name} {CONNECT_COMMAND}' to connect "\

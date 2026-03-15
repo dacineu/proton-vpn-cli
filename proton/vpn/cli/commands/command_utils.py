@@ -20,7 +20,28 @@ along with ProtonVPN.  If not, see <https://www.gnu.org/licenses/>.
 """
 import click
 
+from proton.vpn.session.servers.types import ServerFeatureEnum
 from proton.vpn.cli.core.controller import Controller
+
+
+# Mapping of server features to human-readable names
+FEATURES_TO_DISPLAY = {
+    ServerFeatureEnum.P2P: "P2P",
+    ServerFeatureEnum.SECURE_CORE: "Secure Core",
+    ServerFeatureEnum.TOR: "Tor",
+}
+
+
+def compose_requested_features(p2p: bool, securecore: bool, tor: bool) -> ServerFeatureEnum:
+    """Compose the bitmask of requested server features from flags."""
+    requested_features: ServerFeatureEnum = 0
+    if p2p:
+        requested_features |= ServerFeatureEnum.P2P
+    if securecore:
+        requested_features |= ServerFeatureEnum.SECURE_CORE
+    if tor:
+        requested_features |= ServerFeatureEnum.TOR
+    return requested_features
 
 
 async def inform_that_expired_serverlist_will_be_updated_if_necessary(controller: Controller):

@@ -35,8 +35,10 @@ from proton.vpn.cli.core.wait_for_current_tasks import wait_for_current_tasks
 from proton.vpn.session.exceptions import ServerNotFoundError
 from proton.vpn.session.servers.types import LogicalServer, ServerFeatureEnum
 from proton.vpn.cli.commands.account import SIGNIN_COMMAND
-from proton.vpn.cli.commands.command_utils import \
-    inform_that_expired_serverlist_will_be_updated_if_necessary
+from proton.vpn.cli.commands.command_utils import (
+    inform_that_expired_serverlist_will_be_updated_if_necessary,
+    compose_requested_features,
+)
 
 
 class FailedConnection(click.ClickException):
@@ -89,7 +91,7 @@ async def connect(
     controller.set_uncaught_exceptions_to_absorb([CancelledError])
     server = None
     connection_state = None
-    requested_features = _compose_requested_features(p2p, securecore, tor)
+    requested_features = compose_requested_features(p2p, securecore, tor)
 
     await inform_that_expired_serverlist_will_be_updated_if_necessary(controller)
 
@@ -198,22 +200,6 @@ def _display_openvpn_warning_if_necessary(protocol: str):
         )
 
 
-def _compose_requested_features(
-    p2p: bool,
-    securecore: bool,
-    tor: bool
-) -> ServerFeatureEnum:
-    requested_features: ServerFeatureEnum = 0
-    if p2p:
-        requested_features |= ServerFeatureEnum.P2P
-    if securecore:
-        requested_features |= ServerFeatureEnum.SECURE_CORE
-    if tor:
-        requested_features |= ServerFeatureEnum.TOR
-
-    return requested_features
-
-
 # pylint: disable=too-many-arguments
 def _display_free_user_limitation(
     controller: Controller,
@@ -234,16 +220,6 @@ def _display_free_user_limitation(
             f"Server selection by ID is not available on the free plan."
             f" Please use '{proton_cli_name} {CONNECT_COMMAND}' to connect "
             "to available free servers or upgrade to access all servers."
-        )
-        return
-
-    # when specifying a country or city, the user requires a paying tier
-    if country or city:
-        proton_cli_name = controller.program_name or DEFAULT_CLI_NAME
-        _print_usage_error(
-            "Location selection is not available on the free plan. "
-            f"Please use '{proton_cli_name} {CONNECT_COMMAND}' to connect "
-            "to available free servers or upgrade to choose your location."
         )
         return
 

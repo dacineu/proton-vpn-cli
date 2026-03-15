@@ -368,8 +368,10 @@ class Controller:  # pylint: disable=too-many-public-methods
             raise AuthenticationRequiredError
 
         free_user = self.user_tier == 0
+        # Free users can use country and city filters, but not server_name,
+        # features (p2p, securecore, tor), or random selection.
         requesting_paying_feature =\
-            (server_name or country or city or features or random_server)
+            (server_name or features or random_server)
         if free_user and requesting_paying_feature:
             raise RequiresHigherTierError
 

@@ -72,36 +72,6 @@ async def test_find_logical_server_fails_when_specifying_server_name_as_free_use
 
 
 @pytest.mark.asyncio
-async def test_find_logical_server_fails_when_specifying_country_as_free_user():
-    api_mock = Mock()
-    params_mock = Mock()
-    click_ctx_mock = Mock()
-
-    # mock free user tier
-    user_tier_property = PropertyMock(return_value=0)
-    type(api_mock).user_tier = user_tier_property
-
-    controller = Controller(params_mock, click_ctx_mock, api_mock)
-    with pytest.raises(RequiresHigherTierError):
-        await controller.find_logical_server(country="FR")
-
-
-@pytest.mark.asyncio
-async def test_find_logical_server_fails_when_specifying_city_as_free_user():
-    api_mock = Mock()
-    params_mock = Mock()
-    click_ctx_mock = Mock()
-
-    # mock free user tier
-    user_tier_property = PropertyMock(return_value=0)
-    type(api_mock).user_tier = user_tier_property
-
-    controller = Controller(params_mock, click_ctx_mock, api_mock)
-    with pytest.raises(RequiresHigherTierError):
-        await controller.find_logical_server(city="Milan")
-
-
-@pytest.mark.asyncio
 async def test_find_logical_server_fails_when_requesting_features_as_free_user():
     api_mock = Mock()
     params_mock = Mock()

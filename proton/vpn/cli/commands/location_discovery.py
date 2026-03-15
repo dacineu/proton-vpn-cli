@@ -26,21 +26,13 @@ from tabulate import tabulate
 
 from proton.vpn.cli.core.run_async import run_async
 from proton.vpn.cli.core.controller import Controller
-from proton.vpn.session.servers.types import ServerFeatureEnum
 from proton.vpn.cli.core.exceptions import \
     AuthenticationRequiredError, \
     CountryCodeError, \
     CountryNameError
 from proton.vpn.cli.commands.account import SIGNIN_COMMAND
 from proton.vpn.cli.commands.command_utils import \
-    inform_that_expired_serverlist_will_be_updated_if_necessary
-
-
-FEATURES_TO_DISPLAY = {
-    ServerFeatureEnum.P2P: "P2P",
-    ServerFeatureEnum.SECURE_CORE: "Secure Core",
-    ServerFeatureEnum.TOR: "Tor",
-}
+    inform_that_expired_serverlist_will_be_updated_if_necessary, FEATURES_TO_DISPLAY
 
 
 def _print_usage_error(msg: str):

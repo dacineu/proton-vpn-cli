@@ -1,3 +1,15 @@
+version: 0.1.8
+time: 2026/03/15 21:51
+author: dacineu
+email: dacineu@pm.me
+urgency: low
+stability: unstable
+description:
+- "feat: enable free tier country/city server selection"
+- "feat: add 'protonvpn servers list' command"
+- "refactor: shared FEATURES_TO_DISPLAY constant and helper functions"
+- "fix: update tests for free tier behavior changes"
+---
 version: 0.1.7
 time: 2026/02/17 13:56
 author: Richard Paterson

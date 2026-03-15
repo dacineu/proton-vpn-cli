@@ -28,8 +28,8 @@ from proton.vpn.cli.commands.location_discovery import \
     COUNTRIES_COMMAND, \
     COUNTRIES_LIST_COMMAND, \
     CITIES_COMMAND, \
-    CITIES_LIST_COMMAND, \
-    FEATURES_TO_DISPLAY
+    CITIES_LIST_COMMAND
+from proton.vpn.cli.commands.command_utils import FEATURES_TO_DISPLAY
 from proton.vpn.cli.core.exceptions import \
     AuthenticationRequiredError, \
     CountryCodeError, \
