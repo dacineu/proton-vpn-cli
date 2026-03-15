@@ -21,18 +21,41 @@
 - [x] Clean up unused imports
 - [x] All 74 unit tests passing
 
+### Daemon Integration
+- [x] Add `is_daemon_running()` check to `connect` and `disconnect` commands
+- [x] Create systemd service file (`service/protonvpn.service`)
+- [x] Provide clear error message with start/enable instructions
+- [x] Update README with daemon setup instructions
+- [x] Mock daemon in tests to maintain test stability
+- [x] Non-root operation verified
+
+### Arch Linux Packaging
+- [x] Create PKGBUILD with systemd service integration
+- [x] Create `.install` script for automatic service enable/start
+- [x] Generate `.SRCINFO` for AUR submission
+- [x] Create helper script `update_checksums.sh`
+- [x] Document Arch packaging in `ARCH_LINUX_PACKAGING.md`
+- [x] Update README with Arch installation instructions
+- [x] Test PKGBUILD logic and structure
+
 ### Documentation
 - [x] `CODEBASE_ANALYSIS.md` - Comprehensive project analysis
 - [x] `RELEASE_0.1.8.md` - User-facing release notes
 - [x] `IMPLEMENTATION_DOCUMENTATION_0.1.8.md` - Technical implementation details
+- [x] `DAEMON_INTEGRATION_0.1.8.md` - Daemon integration details
+- [x] `ARCH_LINUX_PACKAGING.md` - Arch packaging guide
+- [x] `ARCH_LINUX_SUMMARY.md` - Arch packaging summary
+- [x] `ALL_CHANGES_SUMMARY.md` - Comprehensive change log
 - [x] Updated `versions.yml` with version 0.1.8 entry
 - [x] Inline code comments and docstrings
+- [x] Updated README with daemon and Arch sections
 
 ### Release Process
-- [x] Created git commit with conventional commit message
+- [x] Created git commit with conventional commit message (0.1.8)
 - [x] Created annotated git tag `v0.1.8`
+- [x] Created additional commits for daemon and Arch packaging
 - [x] Verified all modified files are staged and committed
-- [x] Confirmed test suite passes without errors
+- [x] Confirmed test suite passes without errors (74/74)
 
 ---
 
@@ -47,6 +70,10 @@
   - [ ] Tier restriction test (free user with --p2p fails)
   - [ ] Authentication required test
   - [ ] No servers match test
+- [ ] Add tests for daemon check functionality
+  - [ ] Test error message when daemon not running
+  - [ ] Test systemctl call handling
+  - [ ] Test non-systemd fallback
 - [ ] Add integration tests for full flow (signin → list → connect)
 - [ ] Increase test coverage for `Controller.find_logical_server()` with free tier
 - [ ] Test edge cases: empty server list, invalid city names, case sensitivity
@@ -84,12 +111,23 @@
 - [ ] Cache server list locally to reduce API calls for listing
 - [ ] Add `--refresh` flag to force server list update
 
+### Arch Linux Specific (Medium Priority)
+- [ ] Test PKGBUILD build in clean chroot environment
+- [ ] Submit proton-vpn-cli to AUR
+- [ ] Ensure proton-vpn-api-core and proton-keyring-linux available in AUR/community
+- [ ] Gather community feedback on Arch package
+- [ ] Update Arch PKGBUILD if daemon module path changes
+- [ ] Add troubleshooting section for common Arch issues (permissions, polkit)
+- [ ] Test package upgrade path from older versions
+
 ### Build & Release (Low Priority)
 - [ ] Set up automatic package builds in CI/CD
 - [ ] Create GitHub/GitLab release automatically from tag
-- [ ] Add automated upload to package repositories
+- [ ] Add automated upload to package repositories (DEB, RPM, AUR)
 - [ ] Generate changelog from git commits instead of versions.yml
 - [ ] Verify devtools submodule is always available (vendoring?)
+- [ ] Test Arch package build in clean chroot (extra-cred)
+- [ ] Submit proton-vpn-api-core and proton-keyring-linux to AUR if needed
 
 ### Code Quality (Ongoing)
 - [ ] Run pylint and fix remaining warnings
@@ -134,15 +172,18 @@
 - [ ] Update `versions.yml` with new version
 - [ ] Run full test suite: `pytest -v`
 - [ ] Lint code: `flake8` / `pylint`
-- [ ] Update README.md
+- [ ] Update README.md (including daemon and Arch sections)
 - [ ] Update CHANGELOG.md
-- [ ] Build packages (DEB and RPM)
-- [ ] Test package installation in clean VM
+- [ ] Build packages (DEB, RPM, and Arch)
+- [ ] Test package installation in clean VM (Debian/Ubuntu, Fedora, Arch)
+- [ ] Verify daemon service installs and starts correctly on all distros
 - [ ] Create git tag with annotated message
 - [ ] Push tag to remote
 - [ ] Create GitHub/GitLab release from tag
-- [ ] Publish packages to repository
+- [ ] Publish packages to repository (APT, YUM/DNF, AUR)
 - [ ] Announce release to users
+- [ ] Submit/update AUR package (proton-vpn-cli)
+- [ ] Ensure dependencies (proton-vpn-api-core, proton-keyring-linux) available in AUR
 
 ---
 
