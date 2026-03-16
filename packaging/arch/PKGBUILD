@@ -2,12 +2,13 @@
 # Contributor: dacineu <dacineu@pm.me>
 #
 # This PKGBUILD builds proton-vpn-cli for Arch Linux.
-# It includes integration with protonvpn.service (systemd) for non-root operation.
+# It includes integration with protonvpn.service (systemd) for non-root operation
+# and multi-tunnel VPN support (with optional proton-vpn-manager daemon).
 
 pkgname=proton-vpn-cli
 pkgver=0.1.8
-pkgrel=1
-pkgdesc="Proton VPN CLI - Command-line interface for Proton VPN"
+pkgrel=2
+pkgdesc="Proton VPN CLI - Command-line interface for Proton VPN (with multi-tunnel support)"
 arch=('any')
 url="https://github.com/ProtonMail/python-protonvpn-cli"
 license=('GPL3')
@@ -18,18 +19,30 @@ depends=(
     'python-tabulate'
     'proton-vpn-api-core>=4.14.3'
     'proton-keyring-linux'
-    'proton-vpn-local-agent'  # Provides the daemon module
-)
-optdepends=(
-    'proton-vpn-manager: Multi-tunnel VPN support (tunnel commands)'
+    'proton-vpn-local-agent'
+    # Multi-tunnel dependencies (for tunnel commands)
+    'python-asyncstdlib'
+    'python-pydantic'
+    'python-pyroute2'
+    'iproute2'
+    'nsenter'
 )
 makedepends=(
     'python-setuptools'
+    'python-build'
+    'python-installer'
+    'python-wheel'
     'python-pip'
 )
+optdepends=(
+    'proton-vpn-manager: Multi-tunnel VPN daemon for tunnel commands'
+)
 install="${pkgname}.install"
+
+# Use a local tarball for development; for releases, use the GitHub tag
+# To build from current repo state, create tarball: git archive -o /tmp/protonvpn-cli-0.1.8.tar.gz --prefix=python-protonvpn-cli-0.1.8/ HEAD
 source=("https://github.com/ProtonMail/python-protonvpn-cli/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('SKIP')  # Run makepkg -g to update
+sha256sums=('SKIP')  # Run makepkg -g to update checksum
 
 # The GitHub tarball extracts to python-protonvpn-cli-0.1.8 (or similar).
 # We rename it in prepare() for consistency.
@@ -43,21 +56,28 @@ prepare() {
     fi
 }
 
-package() {
+build() {
     cd "${srcdir}/${pkgname}-${pkgver}"
+    # Build wheel
+    pip wheel . --wheel-dir "${srcdir}" --no-deps
+}
 
-    # Install Python package
-    python -m pip install . --root="${pkgdir}" --optimize=1 --no-deps
+package() {
+    cd "${srcdir}"
+    # Install Python package from wheel
+    python -m installer --destdir="${pkgdir}" *.whl
+
+    local src="${srcdir}/${pkgname}-${pkgver}"
 
     # Install systemd service file
-    install -Dm644 "service/protonvpn.service" \
+    install -Dm644 "${src}/service/protonvpn.service" \
         "${pkgdir}/usr/lib/systemd/system/protonvpn.service"
 
     # Install documentation
-    install -Dm644 README.md \
+    install -Dm644 "${src}/README.md" \
         "${pkgdir}/usr/share/doc/${pkgname}/README.md"
-    install -Dm644 LICENSE \
+    install -Dm644 "${src}/LICENSE" \
         "${pkgdir}/usr/share/doc/${pkgname}/LICENSE"
-    install -Dm644 COPYING.md \
+    install -Dm644 "${src}/COPYING.md" \
         "${pkgdir}/usr/share/doc/${pkgname}/COPYING.md"
 }
