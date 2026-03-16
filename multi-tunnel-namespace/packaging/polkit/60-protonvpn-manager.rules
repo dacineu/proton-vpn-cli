@@ -1,0 +1,53 @@
+// Polkit rules for proton-vpn-manager
+// Place in /etc/polkit-1/rules.d/60-protonvpn-manager.rules
+
+// Allow users in the sudo (or wheel) group to manage VPN tunnels
+// This grants permission to create/destroy network namespaces and TUN devices.
+
+polkit.addRule(function(action, subject) {
+    // Actions defined by org.protonvpn.Manager D-Bus interface
+    var tunnelActions = [
+        "org.protonvpn.manager.create-tunnel",
+        "org.protonvpn.manager.destroy-tunnel",
+        "org.protonvpn.manager.connect",
+        "org.protonvpn.manager.disconnect",
+        "org.protonvpn.manager.register-adapter"
+    ];
+
+    if (tunnelActions.indexOf(action.id) >= 0) {
+        // Root always allowed
+        if (subject.user == "root") {
+            return polkit.Result.YES;
+        }
+
+        // Check group membership
+        var groups = subject.groups;
+        // Common sudo/Admin groups across distros
+        var adminGroups = ["wheel", "sudo", "admin", "adm"];
+        for (var i = 0; i < adminGroups.length; i++) {
+            if (groups.indexOf(adminGroups[i]) >= 0) {
+                return polkit.Result.YES;
+            }
+        }
+
+        // Could require authentication instead:
+        // return polkit.Result.AUTH_SELF;
+    }
+
+    // Default: deny
+    return polkit.Result.NO;
+});
+
+
+/* Alternative: More fine-grained rules
+
+polkit.addRule(function(action, subject) {
+    // Allow only specific users
+    var allowedUsers = ["alice", "bob"];
+    if (allowedUsers.indexOf(subject.user) >= 0) {
+        return polkit.Result.YES;
+    }
+    return polkit.Result.NO;
+});
+
+*/

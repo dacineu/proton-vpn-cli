@@ -1,0 +1,237 @@
+```
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                    MULTI-TUNNEL VPN ARCHITECTURE (OPTION 1)                  ║
+║                   Network Namespace Complete Isolation                       ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                 USER SPACE                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                         protonvpn CLI                               │  │
+│  │  $ protonvpn tunnel create work --country US                       │  │
+│  │  $ protonvpn tunnel switch work                                    │  │
+│  │  $ firefox  # runs in work namespace                               │  │
+│  │                                                                     │  │
+│  │  Commands: create, list, switch, exec, disconnect, destroy         │  │
+│  └───────────────────────────────┬─────────────────────────────────────┘  │
+│                                  │ D-Bus (session or system)              │
+└──────────────────────────────────┼─────────────────────────────────────────┘
+                                    │
+┌───────────────────────────────────▼─────────────────────────────────────────┐
+│                            SYSTEM DAEMON                                   │
+│                    proton-vpn-manager (root)                              │
+│  ┌───────────────────────────────────────────────────────────────────────┐│
+│  │                          TunnelManager                               ││
+│  │  ┌─────────────────────────────────────────────────────────────────┐ ││
+│  │  │ Tunnels: Dict[name → Tunnel]                                   │ ││
+│  │  │   • work       → Tunnel(device="proton0", namespace="vpn_work")│ ││
+│  │  │   • personal   → Tunnel(device="proton1", namespace="vpn_personal")││
+│  │  │   • travel     → Tunnel(device="proton2", namespace="vpn_travel")││
+│  │  └─────────────────────────────────────────────────────────────────┘ ││
+│  │                                                                      ││
+│  │  ┌─────────────────────────────────────────────────────────────────┐ ││
+│  │  │ Adapter Registry: Dict[type → VPNAdapter]                     │ ││
+│  │  │   • "proton" → ProtonVPNAdapter                               │ ││
+│  │  │   • "psiphon" → PsiphonAdapter (future)                      │ ││
+│  │  │   • "wireguard" → WireGuardAdapter (future)                  │ ││
+│  │  └─────────────────────────────────────────────────────────────────┘ ││
+│  │                                                                      ││
+│  │  ┌─────────────────────────────────────────────────────────────────┐ ││
+│  │  │ Routing Strategy: NetworkNamespaceRouting                     │ ││
+│  │  │   • create_namespace("work")   → "vpn_work"                  │ ││
+│  │  │   • move_device_to_namespace("proton0", "vpn_work")           │ ││
+│  │  │   • configure_namespace_network(...)                          │ ││
+│  │  │   • destroy_namespace("work")                                │ ││
+│  │  └─────────────────────────────────────────────────────────────────┘ ││
+│  └───────────────────────────────────┬─────────────────────────────────┘│
+│                                      │ Direct method calls               │
+└──────────────────────────────────────┼───────────────────────────────────┘
+                                       │
+                    ┌──────────────────▼────────────────────────────┐
+                    │            VPNAdapter: ProtonVPNAdapter     │
+                    │  • connect(config) → Tunnel with device     │
+                    │  • disconnect(tunnel)                       │
+                    │  • get_status(tunnel) → TunnelStatus        │
+                    │  • get_traffic_stats(tunnel) → (rx, tx)     │
+                    │  • get_network_config() → (gw, dns)         │
+                    └──────────────────┬────────────────────────────┘
+                                       │ Uses API
+                    ┌──────────────────▼────────────────────────────┐
+                    │        proton-vpn-api-core (Python)         │
+                    │                                              │
+                    │  ┌─────────────────────────────────────────┐│
+                    │  │ ProtonVPNAPI                            ││
+                    │  │   get_vpn_connector(multi_tunnel=True) ││
+                    │  └─────────────┬───────────────────────────┘│
+                    │                │                            │
+                    │  ┌─────────────▼───────────────────────────┐│
+                    │  │ MultiTunnelVPNConnector (NEW)          ││
+                    │  │  connect("work", server_us, "wg")      ││
+                    │ │    → returns VPNConnection with        ││
+                    │  │         tunnel_name="work",           ││
+                    │  │         tun_device="proton0"          ││
+                    │  │  connect("personal", server_jp, "wg") ││
+                    │  │    → returns connection with           ││
+                    │  │         tunnel_name="personal",        ││
+                    │  │         tun_device="proton1"          ││
+                    │  │  get_connection("work") → connection  ││
+                    │  │  list_tunnel_names() → ["work", ...]  ││
+                    │  └───────────────────────────────────────┘│
+                    └──────────────────┬────────────────────────────┘
+                                       │ D-Bus or direct call
+                    ┌──────────────────▼────────────────────────────┐
+                    │          proton-vpn-local-agent (root)      │
+                    │  • Creates TUN devices                      │
+                    │  • Establishes WireGuard/OpenVPN            │
+                    │  • Handles encryption/decryption            │
+                    │                                              │
+                    │  NEW REQUIREMENTS:                          │
+                    │  • Accept tun_device_name parameter         │
+                    │  • Support multiple concurrent TUNs         │
+                    │  • Track: {tun_name → connection_info}     │
+                    │  • Do NOT configure global default route   ││
+                    └──────────────────────────────────────────────┘
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                            NAMESPACE ISOLATION                               ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                                                                               ║
+║  Host Namespace (default)                                                    ║
+║  ├─ eth0 → internet                                                          ║
+║  └─ (no default route when VPN active? depends)                             ║
+║                                                                               ║
+║  Namespace: vpn_work                                                         ║
+║  ├─ loopback (lo)                                                           ║
+║  ├─ proton0  ──────────────────────────────────────────────────────────────┐  ║
+║  │   10.8.0.2/30 (inside VPN)                                              │  ║
+║  │   default via 10.8.0.1                                                  │  ║
+║  │   resolv.conf: nameserver 1.1.1.1                                       │  ║
+║  └─ Apps: firefox, code, ...                                               │  ║
+║        └─ All traffic → US exit IP                                         │  ║
+║                                                                              │  ║
+║  Namespace: vpn_personal                                                    ║
+║  ├─ loopback (lo)                                                           │  ║
+║  ├─ proton0  ──────────────────────────────────────────────────────────────┤  ║
+║  │   10.9.0.2/30 (different VPN)                                          │  ║
+║  │   default via 10.9.0.1                                                  │  ║
+║  │   resolv.conf: nameserver 1.0.0.1                                       │  ║
+║  └─ Apps: telegram, signal, ...                                            │  ║
+║        └─ All traffic → Japan exit IP                                      │  ║
+║                                                                              │  ║
+║  Each namespace has completely independent:                                ║
+║    ✓ Routing table                                                         ║
+║    ✓ DNS resolution                                                       ║
+║   ✓ Firewall (iptables)                                                   ║
+║    ✓ Network interfaces (only its TUN + lo)                               ║
+║                                                                              ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+KEY FLOW: Creating a tunnel named "work"
+────────────────────────────────────────────────────────────────────────────────
+
+1. User: $ protonvpn tunnel create work --country US
+   │
+   ├─> CLI: VPNManagerClient.CreateTunnel(config)
+   │      (D-Bus call to daemon)
+   │
+2. Daemon: TunnelManager.create_tunnel("work", config)
+   │
+   ├─> Gets adapter (ProtonVPNAdapter)
+   │
+3. Adapter: connector.connect("work", server_us, "wireguard")
+   │           (MultiTunnelVPNConnector)
+   │
+   ├─> Allocates TUN name: "proton0"
+   │
+   ├─> LocalAgent.connect(server, "wireguard", tun_device_name="proton0")
+   │           └─> Creates /dev/net/tun device "proton0"
+   │               Establishes encrypted tunnel to US server
+   │               Returns VPNConnection
+   │
+4. Adapter: Returns Tunnel object with device="proton0"
+   │
+5. Manager: routing.create_tunnel_context("work")
+   │           └─> Creates namespace "vpn_work"
+   │
+6. Manager: routing.move_device_to_namespace("proton0", "vpn_work")
+   │           └─> ip link set proton0 netns vpn_work
+   │
+7. Manager: routing.configure_namespace_network(...)
+             └─> Inside vpn_work namespace:
+                 • ip link set proton0 up
+                 • ip addr add 10.8.0.2/32 dev proton0
+                 • ip route add default via 10.8.0.1
+                 • cp resolv.conf with Proton DNS
+   │
+8. Daemon: Returns tunnel info to CLI
+   │
+9. CLI: Prints success message
+   │
+10. User: $ protonvpn tunnel switch work
+    │
+    └─> CLI: Uses nsenter to launch shell in vpn_work namespace
+            Now in that namespace → all apps use work tunnel
+
+────────────────────────────────────────────────────────────────────────────────
+
+TECHNICAL DECISIONS HIGHLIGHTED:
+────────────────────────────────────────────────────────────────────────────────
+
+1. Each tunnel gets unique TUN device ("proton0", "proton1", ...) from daemon
+2. Each tunnel gets its own network namespace ("vpn_work", "vpn_personal")
+3. TUN device moved to namespace immediately after creation
+4. Routing configured INSIDE namespace (separate from host)
+5. User enters namespace via nsenter for per-app routing
+6. All namespaces can be active simultaneously (multi-tunnel achieved!)
+7. Complete isolation: no DNS leaks, separate routing tables, separate iptables
+
+═══════════════════════════════════════════════════════════════════════════════
+
+COMPARISON: Single-Tunnel vs Multi-Tunnel (Our Design)
+═══════════════════════════════════════════════════════════════════════════════
+
+Single-Tunnel (Current):
+  ┌────────────────────────┐
+  │ protonvpn CLI          │
+  └─────────────┬──────────┘
+                │ connect US or JP
+                ▼
+  ┌────────────────────────┐
+  │ Daemon                 │
+  │ Creates → proton0      │
+  │ Configures → default   │  Only ONE tunnel active
+  │ route via proton0      │  All traffic goes through it
+  └────────────────────────┘
+
+Multi-Tunnel (Our Design):
+  ┌────────────────────────┐
+  │ protonvpn CLI          │
+  │ tunnel create work     ├──┐
+  │ tunnel create personal ├──┼──> Multiple concurrent
+  └─────────────┬──────────┘  │    connections
+                │              │
+                ▼              ▼
+  ┌────────────────────────┐  ┌────────────────────────┐
+  │ Daemon: TunnelManager  │  │ Create: vpn_work ns    │
+  │  ├─ work → proton0     │  │ Move: proton0→vpn_work│
+  │  ├─ personal → proton1│  │ Config: inside ns     │
+  │  └─ ... → protonN      │  └───────────────────────┘
+  │                       │
+  │ MultiTunnelVPNConnector│  ┌────────────────────────┐
+  │   (tracks N tunnels)  │  │ Create: vpn_personal ns│
+  │                       │  │ Move: proton1→ns      │
+  └───────────────────────┘  │ Config: inside ns     │
+                            └───────────────────────┘
+  Users use: tunnel switch work
+            tunnel switch personal
+            (namespace isolation)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+READY FOR IMPLEMENTATION? ✅ YES (library complete)
+AWAITING: Upstream proton-vpn-api-core modifications
+NEXT: Submit detailed patches to Proton team
+═══════════════════════════════════════════════════════════════════════════════
+```

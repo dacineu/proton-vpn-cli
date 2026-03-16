@@ -1,0 +1,92 @@
+# PKGBUILD for proton-vpn-manager (Arch Linux)
+# This builds the daemon and installs it as a systemd service
+
+pkgname=proton-vpn-manager
+pkgver=0.1.8
+pkgrel=1
+pkgdesc="Proton VPN Tunnel Manager - Multi-tunnel VPN with network namespace isolation"
+arch=('any')
+url="https://github.com/ProtonVPN/linux-vpn-cli"
+license=('GPL3')
+depends=(
+    'python'
+    'python-dbus-fast'
+    'python-pydantic'
+    'python-asyncstdlib'
+    'python-pyroute2'
+    'iproute2'
+    'nsenter'
+)
+makedepends=(
+    'python-setuptools'
+    'python-build'
+    'python-installer'
+    'python-wheel'
+)
+backup=(
+    'etc/polkit-1/rules.d/60-protonvpn-manager.rules'
+)
+source=(
+    'libvpnmanager.tar.gz'  # Will be created by makepkg
+    'daemon.py'
+    'polkit-rules'
+    'service-file'
+)
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+# We'll create the source tarball during package() by copying from local directory
+LOCAL_SOURCE_DIR="../"  # Path to multi-tunnel-namespace directory
+
+prepare() {
+    # Create tarball from local source
+    cd "$LOCAL_SOURCE_DIR"
+
+    # Create libvpnmanager source tarball
+    tar -czf "$srcdir/libvpnmanager.tar.gz" \
+        --exclude='.venv' \
+        --exclude='.pytest_cache' \
+        --exclude='__pycache__' \
+        --exclude='*.pyc' \
+        src/libvpnmanager/
+
+    # Copy daemon script
+    cp src/daemon/daemon.py "$srcdir/daemon.py"
+
+    # Copy polkit rules
+    cp packaging/polkit/60-protonvpn-manager.rules "$srcdir/polkit-rules"
+
+    # Copy systemd service file
+    cp packaging/systemd/usr/lib/systemd/system/proton-vpn-manager.service "$srcdir/service-file"
+}
+
+package() {
+    # Install Python package (libvpnmanager)
+    python -m build --wheel --skip-dependency-check "$srcdir/libvpnmanager.tar.gz" --out-dir "$srcdir"
+    # Actually, build expects a directory, not tarball
+    # Let's extract and build directly
+    tar -xzf "$srcdir/libvpnmanager.tar.gz" -C "$srcdir"
+    python -m build --wheel --skip-dependency-check "$srcdir/src/libvpnmanager" --out-dir "$srcdir"
+    python -m installer --destdir="$pkgdir" "$srcdir"/*.whl
+
+    # Install daemon script
+    install -Dm755 "$srcdir/daemon.py" "$pkgdir/usr/bin/proton-vpn-manager"
+
+    # Install systemd service
+    install -Dm644 "$srcdir/service-file" \
+        "$pkgdir/usr/lib/systemd/system/proton-vpn-manager.service"
+
+    # Install polkit rules
+    install -Dm644 "$srcdir/polkit-rules" \
+        "$pkgdir/etc/polkit-1/rules.d/60-protonvpn-manager.rules"
+
+    # Install documentation
+    install -Dm644 "$LOCAL_SOURCE_DIR/README.md" \
+        "$pkgdir/usr/share/doc/proton-vpn-manager/README.md"
+    install -Dm644 "$LOCAL_SOURCE_DIR/SPECIFICATION.md" \
+        "$pkgdir/usr/share/doc/proton-vpn-manager/SPECIFICATION.md" 2>/dev/null || true
+    install -Dm644 "$LOCAL_SOURCE_DIR/TESTING.md" \
+        "$pkgdir/usr/share/doc/proton-vpn-manager/TESTING.md" 2>/dev/null || true
+}
+
+# This PKGBUILD is designed for development from local source.
+# For official releases, use a proper git archive tarball and proper source URLs.

@@ -1,0 +1,55 @@
+[Unit]
+Description=Proton VPN Tunnel Manager
+Documentation=man:proton-vpn-manager(8)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=dbus
+BusName=org.protonvpn.Manager
+ExecStart=/usr/bin/proton-vpn-manager
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+KillMode=process
+
+# Capabilities: We need NET_ADMIN and SYS_ADMIN for namespaces/TUN
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_ADMIN
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=net  # We use net namespaces, but not user/mnt/etc.
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false  # Set true if all code is compiled/static
+# SystemCallFilter=@system-service  # Too restrictive for networking
+
+# Run as non-root if possible (still needs capabilities)
+# User=protonvpn
+# Group=protonvpn
+# If running as non-root, need to configure polkit to grant capabilities
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=proton-vpn-manager
+
+[Install]
+WantedBy=multi-user.target
+
+# Note: To allow non-root user to run this:
+# 1. Create protonvpn user/group
+// 2. Set file capabilities on binary:
+//    sudo setcap cap_net_admin,cap_sys_admin+ep /usr/bin/proton-vpn-manager
+// 3. Configure polkit to allow the user without password
+// 4. Set User=protonvpn in this service file
+// Alternatively, run as root with the above security restrictions.

@@ -20,6 +20,9 @@ depends=(
     'proton-keyring-linux'
     'proton-vpn-local-agent'  # Provides the daemon module
 )
+optdepends=(
+    'proton-vpn-manager: Multi-tunnel VPN support (tunnel commands)'
+)
 makedepends=(
     'python-setuptools'
     'python-pip'

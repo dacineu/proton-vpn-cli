@@ -1,0 +1,714 @@
+# MultiTunnelVPNConnector: Detailed Design
+
+This document provides a complete implementation design for adding multi-tunnel support to proton-vpn-api-core.
+
+---
+
+## 1. Architecture Overview
+
+### Current Single-Tunnel Model
+
+```
+ProtonVPNAPI
+   └── VPNConnector (singleton)
+         └── VPNConnection (only one active)
+               └── TUN device: "proton0"
+```
+
+All API calls go through the single connector. Only one tunnel can exist.
+
+### Proposed Multi-Tunnel Model
+
+```
+ProtonVPNAPI
+   ├── VPNConnector (legacy, for backward compatibility)
+   |     └── VPNConnection ("default" tunnel, uses "proton0")
+   |
+   └── MultiTunnelVPNConnector (new)
+         ├── VPNConnection ("work") → "proton0" or assigned
+         ├── VPNConnection ("personal") → "proton1"
+         └── VPNConnection ("travel") → "proton2"
+```
+
+Both connector types can coexist:
+- Old code: `api.get_vpn_connector()` returns single-tunnel connector
+- New code: `api.get_vpn_connector(multi_tunnel=True)` returns multi-tunnel
+
+---
+
+## 2. New Classes & Modified Interfaces
+
+### 2.1 MultiTunnelVPNConnector
+
+```python
+# File: proton/vpn/core/connection/multi_vpn_connector.py
+from typing import Dict, Optional, List
+from proton.vpn.core.api import ProtonVPNAPI
+from proton.vpn.core.connection.vpn_connection import VPNConnection
+from proton.vpn.core.session.exceptions import TunnelNotFoundError, TunnelExistsError
+
+
+class MultiTunnelVPNConnector:
+    """
+    VPNConnector that supports multiple concurrent tunnels.
+
+    This is an alternative to VPNConnector that allows creating
+    multiple named VPN tunnels, each with its own TUN device and
+    routing configuration.
+
+    Usage:
+        connector = await api.get_vpn_connector(multi_tunnel=True)
+        work = await connector.connect("work", server_us, "wireguard")
+        personal = await connector.connect("personal", server_jp, "wireguard")
+
+        # Both tunnels active simultaneously
+        print(work.get_tun_device_name())  # "proton0"
+        print(personal.get_tun_device_name())  # "proton1"
+
+        # Disconnect one
+        await connector.disconnect("work")
+        # personal still connected
+    """
+
+    def __init__(self, api: ProtonVPNAPI):
+        """
+        Initialize multi-tunnel connector.
+
+        Args:
+            api: ProtonVPNAPI instance (for shared session, server list, etc.)
+        """
+        self._api = api
+        self._connections: Dict[str, VPNConnection] = {}
+        self._next_device_index = 0
+        self._lock = asyncio.Lock()
+
+    async def connect(
+        self,
+        tunnel_name: str,
+        server: LogicalServer,
+        protocol: str,
+        custom_tun_device_name: Optional[str] = None,
+        **connection_kwargs
+    ) -> VPNConnection:
+        """
+        Create and connect a new tunnel.
+
+        Args:
+            tunnel_name: Unique identifier for this tunnel
+            server: LogicalServer to connect to
+            protocol: VPN protocol (e.g., "wireguard", "openvpn-udp")
+            custom_tun_device_name: Optional specific TUN device name
+                (e.g., "proton_work"). If None, auto-assigns "proton0", "proton1", ...
+            **connection_kwargs: Additional connection parameters (passed to parent)
+
+        Returns:
+            VPNConnection object representing the active connection
+
+        Raises:
+            TunnelExistsError: If tunnel_name already in use
+            ConnectionError: If connection fails
+            ConfigurationError: If parameters invalid
+        """
+        async with self._lock:
+            # Check for duplicate tunnel name
+            if tunnel_name in self._connections:
+                raise TunnelExistsError(f"Tunnel '{tunnel_name}' already exists")
+
+            # Determine TUN device name
+            if custom_tun_device_name:
+                tun_name = custom_tun_device_name
+            else:
+                tun_name = f"proton{self._next_device_index}"
+                self._next_device_index += 1
+
+            # Validate TUN name not already used (in this connector or elsewhere)
+            # Note: Can't easily check system-wide, rely on local agent to reject
+            for existing_conn in self._connections.values():
+                if existing_conn.get_tun_device_name() == tun_name:
+                    raise TunnelExistsError(f"TUN device '{tun_name}' already in use")
+
+        # Get local agent
+        local_agent = self._api.get_local_agent()
+
+        # Prepare connection configuration
+        # The actual connection is managed by local agent
+        # We need a way to request a specific TUN name
+
+        # Approach: Extend local agent API
+        # Current (assumed): await local_agent.connect(server, protocol)
+        # New: await local_agent.connect(server, protocol, tun_device_name=tun_name)
+
+        try:
+            # This is the key call that must be added to local agent
+            connection = await local_agent.connect(
+                server=server,
+                protocol=protocol,
+                tun_device_name=tun_name,
+                **connection_kwargs
+            )
+
+            # Attach tunnel name to connection for tracking
+            connection._tunnel_name = tunnel_name  # type: ignore
+
+            async with self._lock:
+                self._connections[tunnel_name] = connection
+
+            return connection
+
+        except Exception as e:
+            # Cleanup if local agent partially created
+            try:
+                await local_agent.disconnect(tun_device_name=tun_name)
+            except Exception:
+                pass  # Best effort
+            raise
+
+    async def disconnect(self, tunnel_name: str):
+        """
+        Disconnect a specific tunnel.
+
+        Args:
+            tunnel_name: Name of tunnel to disconnect
+
+        Raises:
+            TunnelNotFoundError: If tunnel not found
+        """
+        async with self._lock:
+            connection = self._connections.pop(tunnel_name, None)
+            if not connection:
+                raise TunnelNotFoundError(f"Tunnel '{tunnel_name}' not found")
+
+            tun_name = connection.get_tun_device_name()
+
+        try:
+            local_agent = self._api.get_local_agent()
+            await local_agent.disconnect(tun_device_name=tun_name)
+        except Exception as e:
+            # Connection object might already be closed
+            print(f"Warning: error disconnecting {tunnel_name}: {e}")
+
+    def get_connection(self, tunnel_name: str) -> Optional[VPNConnection]:
+        """
+        Get connection by tunnel name.
+
+        Args:
+            tunnel_name: Tunnel identifier
+
+        Returns:
+            VPNConnection if active, None if not found
+        """
+        return self._connections.get(tunnel_name)
+
+    def list_tunnel_names(self) -> List[str]:
+        """
+        List all active tunnel names.
+
+        Returns:
+            List of tunnel name strings
+        """
+        return list(self._connections.keys())
+
+    def list_connections(self) -> Dict[str, VPNConnection]:
+        """
+        Get all active connections.
+
+        Returns:
+            Dict mapping tunnel_name → VPNConnection
+        """
+        return dict(self._connections)
+
+    async def disconnect_all(self):
+        """
+        Disconnect all tunnels.
+        """
+        async with self._lock:
+            names = list(self._connections.keys())
+            for name in names:
+                try:
+                    await self.disconnect(name)
+                except Exception as e:
+                    print(f"Error disconnecting {name}: {e}")
+
+    # Optional: Convenience methods
+
+    async def reconnect(self, tunnel_name: str):
+        """
+        Reconnect a tunnel (disconnect then reconnect with same config).
+        Requires storing connection config per tunnel.
+        """
+        raise NotImplementedError("Need to store connection config for reconnect")
+
+    async def move_tunnel_to_namespace(self, tunnel_name: str, namespace: str):
+        """
+        Move a tunnel's TUN device to a network namespace.
+
+        This is used by our libvpnmanager routing layer.
+
+        Args:
+            tunnel_name: Tunnel to move
+            namespace: Target network namespace
+
+        Raises:
+            TunnelNotFoundError: If tunnel not found
+        """
+        connection = self.get_connection(tunnel_name)
+        if not connection:
+            raise TunnelNotFoundError(tunnel_name)
+
+        tun_name = connection.get_tun_device_name()
+
+        # Use system ip command to move device
+        # This requires daemon to have CAP_NET_ADMIN
+        import subprocess
+        subprocess.run(
+            ["ip", "link", "set", tun_name, "netns", namespace],
+            check=True
+        )
+```
+
+---
+
+## 3. Required Changes to Local Agent
+
+The local agent (proton-vpn-local-agent) is what actually creates TUN devices and configures routing. It **must** be modified to:
+- Accept a custom TUN device name
+- Support multiple TUN devices simultaneously
+- Not override global routing (let daemon handle per-tunnel routing)
+
+### 3.1 Current (Assumed) Local Agent API
+
+```python
+# In proton/vpn/local/agent.py (pseudocode)
+
+class LocalAgent:
+    async def connect(self, server: LogicalServer, protocol: str) -> VPNConnection:
+        """
+        Establish VPN connection.
+        Current: Creates TUN "proton0", configures default route.
+        """
+        tun_name = "proton0"  # HARDCODED
+        tun = self._create_tun(tun_name)
+        # Configure routing: set default route via tun0
+        # ...
+        return VPNConnection(tun, ...)
+```
+
+### 3.2 Modified Local Agent API
+
+```python
+# Modified proton/vpn/local/agent.py
+
+class LocalAgent:
+    def __init__(self):
+        self._active_tuns: Dict[str, TunDevice] = {}  # Track all TUNs
+
+    async def connect(
+        self,
+        server: LogicalServer,
+        protocol: str,
+        tun_device_name: Optional[str] = None,
+        configure_routing: bool = False,  # New: let caller handle routing
+        **kwargs
+    ) -> VPNConnection:
+        """
+        Establish VPN connection.
+
+        Args:
+            server: Target server
+            protocol: VPN protocol
+            tun_device_name: Desired TUN device name. If None, auto-assigns "proton0", "proton1", ...
+            configure_routing: If True, set up default route on this TUN (legacy behavior).
+                               If False, only create TUN and leave routing to caller
+                               (our daemon will configure namespace).
+            **kwargs: Additional options
+
+        Returns:
+            VPNConnection
+        """
+        # Determine TUN name
+        if tun_device_name is None:
+            tun_device_name = self._allocate_tun_name()
+
+        # Check if already in use
+        if tun_device_name in self._active_tuns:
+            raise DeviceExistsError(f"TUN device {tun_device_name} already active")
+
+        # Create TUN device
+        tun = self._create_tun_device(tun_device_name)
+        self._active_tuns[tun_device_name] = tun
+
+        # Establish VPN connection (WireGuard/OpenVPN) that uses this TUN
+        connection = await self._establish_vpn(tun, server, protocol)
+
+        # Configure routing ONLY if requested (backward compat)
+        if configure_routing:
+            await self._configure_routing(tun_device_name)
+
+        return VPNConnection(
+            tun_device=tun_device_name,
+            server=server,
+            protocol=protocol,
+            agent=self
+        )
+
+    async def disconnect(self, tun_device_name: str = None):
+        """
+        Disconnect a VPN.
+
+        Args:
+            tun_device_name: TUN device to disconnect. If None, disconnects "proton0" (legacy).
+        """
+        if tun_device_name is None:
+            tun_device_name = "proton0"  # Legacy default
+
+        tun = self._active_tuns.pop(tun_device_name, None)
+        if tun:
+            await self._terminate_vpn(tun)
+            # TUN device is automatically removed when file descriptor closed
+            # Or explicitly: ip link delete {tun_device_name}
+
+    def get_active_tun_names(self) -> List[str]:
+        """List all currently active TUN devices managed by this agent."""
+        return list(self._active_tuns.keys())
+
+    def _allocate_tun_name(self) -> str:
+        """Find next available TUN name: proton0, proton1, ..."""
+        # Scan existing TUNs to find next free index
+        used = set(self._active_tuns.keys())
+        i = 0
+        while f"proton{i}" in used:
+            i += 1
+        return f"proton{i}"
+
+    # Existing methods...
+    async def _configure_routing(self, tun_device_name: str):
+        """
+        Configure routing for a TUN device.
+        This sets default route via this TUN.
+        NOTE: In multi-tunnel mode, our daemon will do this per-namespace,
+              so this method should not be called (configure_routing=False).
+        """
+        # Implementation: ip route add default dev {tun_device_name}
+        pass
+```
+
+### 3.2 D-Bus Interface Changes (if applicable)
+
+If local agent exposes D-Bus API, that interface needs updating:
+
+```
+Interface: org.protonvpn.LocalAgent
+
+Method: Connect(s: server_json, s: protocol, s: tun_device_name) -> o connection_path
+Method: Disconnect(s: tun_device_name)
+Method: ListConnections() -> as tun_device_names
+```
+
+---
+
+## 4. Integration with VPNConnector
+
+The existing `VPNConnector` class can remain unchanged for backward compatibility.
+
+`MultiTunnelVPNConnector` is a **new class**, not a modification of `VPNConnector`.
+
+```python
+# In proton/vpn/core/connection/__init__.py
+
+from .vpn_connector import VPNConnector  # existing
+from .multi_vpn_connector import MultiTunnelVPNConnector  # new
+```
+
+---
+
+## 5. ProtonVPNAPI Changes
+
+```python
+# In proton/vpn/core/api.py
+
+class ProtonVPNAPI:
+    def __init__(self, metadata: ClientTypeMetadata):
+        self._metadata = metadata
+        self._connector = None
+        self._multi_connector = None
+        # ...
+
+    async def get_vpn_connector(self, multi_tunnel: bool = False) -> Union[VPNConnector, MultiTunnelVPNConnector]:
+        """
+        Get a VPN connector.
+
+        Args:
+            multi_tunnel: If True, return MultiTunnelVPNConnector for
+                         multiple concurrent tunnels. If False (default),
+                         return the traditional single-tunnel VPNConnector.
+
+        Returns:
+            VPNConnector or MultiTunnelVPNConnector
+
+        Note:
+            For backward compatibility, the default is False.
+            Applications needing multiple tunnels should explicitly
+            request multi_tunnel=True.
+        """
+        if multi_tunnel:
+            if self._multi_connector is None:
+                self._multi_connector = MultiTunnelVPNConnector(self)
+            return self._multi_connector
+        else:
+            if self._connector is None:
+                self._connector = VPNConnector(self)
+            return self._connector
+```
+
+---
+
+## 6. Testing Plan for Modified Daemon
+
+### Unit Tests (to add in proton-vpn-api-core)
+
+```python
+# tests/core/connection/test_multi_vpn_connector.py
+
+@pytest.mark.asyncio
+async def test_multi_tunnel_connect(api):
+    connector = MultiTunnelVPNConnector(api)
+
+    # Connect first tunnel
+    conn1 = await connector.connect("work", server_us, "wireguard")
+    assert conn1.get_tun_device_name() == "proton0"
+    assert "work" in connector.list_tunnel_names()
+
+    # Connect second tunnel
+    conn2 = await connector.connect("personal", server_jp, "wireguard")
+    assert conn2.get_tun_device_name() == "proton1"
+    assert "personal" in connector.list_tunnel_names()
+
+    # Can get connections by name
+    assert connector.get_connection("work") is conn1
+    assert connector.get_connection("personal") is conn2
+
+@pytest.mark.asyncio
+async def test_multi_tunnel_disconnect(api):
+    connector = MultiTunnelVPNConnector(api)
+
+    conn1 = await connector.connect("t1", server_us, "wireguard")
+    conn2 = await connector.connect("t2", server_jp, "wireguard")
+
+    # Disconnect t1
+    await connector.disconnect("t1")
+    assert "t1" not in connector.list_tunnel_names()
+    assert "t2" in connector.list_tunnel_names()
+
+    # Disconnect t2
+    await connector.disconnect("t2")
+    assert len(connector.list_tunnel_names()) == 0
+
+@pytest.mark.asyncio
+async def test_multi_tunnel_duplicate_name(api):
+    connector = MultiTunnelVPNConnector(api)
+
+    await connector.connect("work", server_us, "wireguard")
+
+    with pytest.raises(TunnelExistsError):
+        await connector.connect("work", server_jp, "wireguard")
+
+@pytest.mark.asyncio
+async def test_multi_tunnel_unique_tun_names(api):
+    connector = MultiTunnelVPNConnector(api)
+
+    conns = []
+    for i in range(5):
+        conn = await connector.connect(f"tunnel{i}", server_us, "wireguard")
+        conns.append(conn)
+
+    # Check all TUN names are unique
+    tun_names = [c.get_tun_device_name() for c in conns]
+    assert len(set(tun_names)) == 5  # All different
+```
+
+### Integration Tests
+
+- Create 3 tunnels to 3 different countries
+- Verify each gets different exit IP via `ifconfig.me`
+- Verify DNS works in all tunnels
+- Disconnect middle tunnel, verify others unaffected
+
+---
+
+## 7. Backward Compatibility Checklist
+
+- [ ] `VPNConnector.connect(server, protocol)` unchanged - still works
+- [ ] `ProtonVPNAPI.get_vpn_connector()` default still returns `VPNConnector`
+- [ ] Existing CLI `protonvpn connect` uses single-tunnel (no code changes needed)
+- [ ] `VPNConnection` class unchanged (except potentially add `get_tun_device_name()` if missing)
+- [ ] Local agent can still create "proton0" if no tun_name provided (backward compat)
+- [ ] Old code that doesn't specify `tun_device_name` gets auto-assigned (proton0, proton1, ...)
+- [ ] Logging and metrics unchanged
+
+---
+
+## 8. Estimated Code Changes
+
+| File | Lines Added | Lines Modified | Description |
+|------|-------------|----------------|-------------|
+| `core/connection/vpn_connector.py` | 0 | +10 | Maybe add `get_tun_device_name()` method if missing |
+| `core/connection/multi_vpn_connector.py` | +250 | 0 | New file |
+| `core/connection/__init__.py` | +1 | 0 | Export MultiTunnelVPNConnector |
+| `core/api.py` | +30 | +10 | get_vpn_connector(multi_tunnel=...) |
+| `local/agent.py` | +100 | +50 | Accept tun_device_name, track multiple TUNs |
+| `local/agent_dbus.py` (if exists) | +50 | +20 | Update D-Bus signatures |
+| `tests/...` | +300 | 0 | New unit/integration tests |
+| **Total** | **~730** | **~90** | ~820 lines changed/added |
+
+**Time estimate**: 2-3 weeks for experienced developer familiar with the codebase.
+
+---
+
+## 9. Unknowns & Risks
+
+1. **TUN device naming collision with system**:
+   - What if "proton0" already exists? (unlikely but possible)
+   - Solution: skip used names, or use random suffix
+
+2. **Routing table conflicts**:
+   - If each TUN configures default route, last one wins?
+   - Our namespace strategy avoids this by moving TUN to separate namespace
+   - Local agent should NOT configure default route when `configure_routing=False`
+
+3. **Session/API credentials per connection**:
+   - All connections share same session (same API object) - OK
+
+4. **Traffic stats per TUN**:
+   - Need to verify how stats are collected
+   - Likely read from `/sys/class/net/tunX/statistics/{rx,tx}_bytes`
+   - Must be per-TUN, so no conflict
+
+5. **IPv6**:
+   - Each TUN may need IPv6 configuration separately
+   - Namespace strategy handles this naturally
+
+6. **Reconnection logic**:
+   - If a tunnel disconnects unexpectedly, can we auto-reconnect?
+   - Need state subscriber to detect and trigger reconnect
+   - Reconnect should use same tunnel name and TUN name
+
+7. **Order of operations**:
+   - Our daemon wants to: create namespace → create TUN → move TUN to ns → configure routing
+   - But local agent creates TUN and probably configures routing immediately
+   - Need to coordinate:
+     a) Daemon calls local agent with `configure_routing=False`
+     b) Daemon moves TUN to namespace
+     c) Daemon configures routing inside namespace
+   - This requires careful sequencing
+
+---
+
+## 10. Recommended Implementation Order
+
+1. **Modify local agent** to accept `tun_device_name` and `configure_routing` parameters
+   - Keep default to "proton0" and `configure_routing=True` for backward compat
+   - Add tracking of multiple TUNs
+   - Test with existing API (should not break anything)
+
+2. **Add `get_tun_device_name()` to VPNConnection** if not present
+   - Simple getter for TUN name stored in connection object
+
+3. **Create MultiTunnelVPNConnector** class
+   - Implement connect(tunnel_name, ...), disconnect(tunnel_name), list_tunnels()
+   - Use new local agent API
+
+4. **Update ProtonVPNAPI.get_vpn_connector(multi_tunnel=True)**
+   - Factory for MultiTunnelVPNConnector
+
+5. **Write tests** for new connector
+
+6. **Test with libvpnmanager ProtonVPNAdapter**
+   - Use multi_tunnel=True when getting connector
+   - Verify tunnels created with correct TUN names
+   - Verify daemon can move TUN to namespace
+
+7. **Submit PR** to proton-vpn-api-core
+
+---
+
+## 11. Alternative: Fork vs. Upstream
+
+Should we:
+- **Fork** proton-vpn-api-core and add multi-tunnel ourselves?
+  - Pro: Fast, we control the changes
+  - Con: Maintenance burden, need to merge upstream updates
+
+- **Submit PR** to upstream:
+  - Pro: Integrated officially, no fork maintenance
+  - Con: They might reject or delay
+
+**Recommended**:
+1. Write detailed issue/feature request explaining multi-tunnel use case
+2. Share our libvpnmanager architecture
+3. Offer to implement if they approve design
+4. If they're busy, consider temporary fork with `MultiTunnelVPNConnector`
+   - We can vendor the fork in our libvpnmanager as fallback
+
+---
+
+## 12. What If They Say No?
+
+If Proton team rejects multi-tunnel support in daemon:
+
+**Option A**: Implement our own WireGuard adapter
+- Use `wireguard-tools` or `wg` Python library directly
+- Bypass proton-vpn-api-core entirely
+- Lose Proton-specific features (NetShield, Secure Core, etc.)
+- But keep core multi-tunnel + namespace isolation
+- Could also implement Psiphon adapter, OpenVPN adapter
+
+**Option B**: Use policy routing with single TUN (doesn't meet requirement)
+
+**Option C**: Ask enterprise customers about feature; build business case
+
+---
+
+## Conclusion
+
+The daemon changes are **well-defined and moderately scoped** (~800 lines).
+The key is getting local agent to accept custom TUN device name and support multiple TUNs.
+Once that's done, MultiTunnelVPNConnector is straightforward.
+
+**Next step**: Access proton-vpn-api-core codebase and produce actual patches.
+
+---
+
+## Appendix: Sample Usage with Modified API
+
+```python
+# New application code using multi-tunnel
+
+from proton.vpn.core.api import ProtonVPNAPI
+from proton.vpn.core.session_holder import ClientTypeMetadata
+
+# Initialize
+metadata = ClientTypeMetadata(type="linux-cli", version="0.1.8")
+api = ProtonVPNAPI(metadata)
+
+# Get multi-tunnel connector
+connector = await api.get_vpn_connector(multi_tunnel=True)
+
+# Create multiple tunnels
+work = await connector.connect("work", server_us, "wireguard")
+personal = await connector.connect("personal", server_jp, "wireguard")
+
+print(work.get_tun_device_name())   # "proton0"
+print(personal.get_tun_device_name())  # "proton1"
+
+# Disconnect one
+await connector.disconnect("work")
+
+# Old API still works
+old_connector = await api.get_vpn_connector()  # single-tunnel
+await old_connector.connect(server, "wireguard")  # Uses "default" / "proton0"
+```
+
+---
+
+**Document Version**: 1.0
+**Date**: 2026-03-16
