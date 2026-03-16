@@ -5,7 +5,7 @@
 
 pkgname=proton-vpn-manager
 pkgver=0.1.8
-pkgrel=1
+pkgrel=2
 pkgdesc="Proton VPN Tunnel Manager daemon for multi-tunnel VPN with network namespace isolation"
 arch=('any')
 url="https://github.com/ProtonMail/python-protonvpn-cli"
@@ -33,48 +33,44 @@ backup=(
 )
 install="${pkgname}.install"
 
-# No source download - we copy from the current repository
+# No source download - build from current repository state using makepkg -e
+# This PKGBUILD is designed to be run from the multi-tunnel-namespace directory
 source=()
 noextract=()
 
 prepare() {
-    local repo_root="/home/dacineu/dev/proton-vpn-cli"
-    mkdir -p "${srcdir}"
-
-    # Copy the entire multi-tunnel-namespace directory
-    cp -r "${repo_root}/multi-tunnel-namespace" "${srcdir}/"
+    # Nothing to prepare; we build directly from the existing source
+    :
 }
 
 build() {
-    cd "${srcdir}/multi-tunnel-namespace/src/libvpnmanager"
-    python -m build --wheel --skip-dependency-check . --out-dir "${srcdir}"
+    # Build libvpnmanager wheel from local source
+    cd "${srcdir}/../src"
+    pip wheel . --wheel-dir "${srcdir}" --no-deps
 }
 
 package() {
     cd "${srcdir}"
 
-    # Install Python package
+    # Install Python package from wheel
     python -m installer --destdir="${pkgdir}" *.whl
 
-    local src="${srcdir}/multi-tunnel-namespace"
-
     # Install daemon script
-    install -Dm755 "${src}/src/daemon/daemon.py" \
+    install -Dm755 "${srcdir}/../src/daemon/daemon.py" \
         "${pkgdir}/usr/bin/proton-vpn-manager"
 
     # Install systemd service
-    install -Dm644 "${src}/packaging/systemd/usr/lib/systemd/system/proton-vpn-manager.service" \
+    install -Dm644 "${srcdir}/../packaging/systemd/usr/lib/systemd/system/proton-vpn-manager.service" \
         "${pkgdir}/usr/lib/systemd/system/proton-vpn-manager.service"
 
     # Install polkit rules
-    install -Dm644 "${src}/packaging/polkit/60-protonvpn-manager.rules" \
+    install -Dm644 "${srcdir}/../packaging/polkit/60-protonvpn-manager.rules" \
         "${pkgdir}/etc/polkit-1/rules.d/60-protonvpn-manager.rules"
 
-    # Install documentation from repo root (one level up from multi-tunnel-namespace)
+    # Install documentation
     local docdir="${pkgdir}/usr/share/doc/${pkgname}"
-    local repo_doc_dir="${srcdir}/../"
-    install -Dm644 "${repo_doc_dir}/README.md" "${docdir}/README.md" 2>/dev/null || true
-    install -Dm644 "${repo_doc_dir}/MULTI_TUNNEL_ARCHITECTURE.md" "${docdir}/ARCHITECTURE.md" 2>/dev/null || true
-    install -Dm644 "${src}/README.md" "${docdir}/LIBVPNMANAGER.md" 2>/dev/null || true
-    install -Dm644 "${repo_doc_dir}/IMPLEMENTATION_REPORT.md" "${docdir}/IMPLEMENTATION_REPORT.md" 2>/dev/null || true
+    install -Dm644 "${srcdir}/../../README.md" "${docdir}/README.md" 2>/dev/null || true
+    install -Dm644 "${srcdir}/../../MULTI_TUNNEL_ARCHITECTURE.md" "${docdir}/ARCHITECTURE.md" 2>/dev/null || true
+    install -Dm644 "${srcdir}/../README.md" "${docdir}/LIBVPNMANAGER.md" 2>/dev/null || true
+    install -Dm644 "${srcdir}/../../IMPLEMENTATION_REPORT.md" "${docdir}/IMPLEMENTATION_REPORT.md" 2>/dev/null || true
 }
