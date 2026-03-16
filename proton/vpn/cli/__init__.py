@@ -33,6 +33,7 @@ from proton.vpn.cli.commands.server import connect, disconnect
 from proton.vpn.cli.commands.location_discovery import countries, cities
 from proton.vpn.cli.commands.settings import config
 from proton.vpn.cli.commands.servers import servers
+from proton.vpn.cli.commands.tunnel import tunnel_group
 from proton.vpn.cli.core.controller import Params
 from proton.vpn.cli.core.run_async import run_async
 
@@ -131,6 +132,9 @@ app.add_command(servers)
 
 # set features
 app.add_command(config)
+
+# multi-tunnel commands
+app.add_command(tunnel_group)
 
 
 def main():

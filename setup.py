@@ -21,7 +21,8 @@ setup(
         "proton-vpn-local-agent",
         "click",
         "dbus-fast",
-        "tabulate"
+        "tabulate",
+        "libvpnmanager; sys_platform != 'win32'",  # Multi-tunnel support on Linux
     ],
     extras_require={
         "development": [
