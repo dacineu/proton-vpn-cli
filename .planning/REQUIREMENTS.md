@@ -10,7 +10,7 @@
 ### Daemon & Adapter Lifecycle
 
 - [ ] **DAEM-01**: MTM daemon can spawn adapter processes as separate executables with two Unix socket endpoints (CLI socket for client connections, control socket for MTM control)
-- [ ] **DAEM-02**: MTM tracks adapter processes by `(adapter_type, username)` key in `adapter_pool` and can `ListAdapters()` and `StopAdapter()` via D-Bus
+- [ ] **DAEM-02**: MTM tracks adapter processes by `(adapter_type, vpn_username)` key in `adapter_pool` and can `ListAdapters()` and `StopAdapter()` via D-Bus
 - [ ] **DAEM-03**: MTM `AllocateTunnel` handler creates network namespace (`ip netns add`), moves device into namespace (`ip link set`), configures address, routes, and DNS
 - [ ] **DAEM-04**: MTM `ReleaseTunnel` handler deletes namespace and cleans up associated resources
 - [ ] **DAEM-05**: MTM monitors adapter process exit (via `asyncio.wait`) and on crash cleans up all tunnels belonging to that adapter
@@ -43,6 +43,13 @@
 - [ ] **SEC-01**: Socket permissions: MTM creates adapter CLI socket with mode `0600`, owned appropriately; only requesting user can connect
 - [ ] **SEC-02**: Credentials passed via stdin are not visible in `/proc/<pid>/environ`; adapter securely clears credential buffer after reading
 - [ ] **SEC-03**: MTM control socket verifies peer credentials via `SO_PEERCRED` to prevent impersonation
+- [ ] **SEC-04**: MTM stores user TOTP secrets encrypted in system keyring (libsecret); secret never exposed to CLI or logged
+- [ ] **SEC-05**: `Verify2FA(totp_code)` D-Bus method: MTM verifies TOTP against stored secret (±1 time step), returns `{valid: bool}`. Used by CLI before StartAdapter.
+- [ ] **SEC-06**: Per-request TOTP: Every CLI→MTM D-Bus call (except Verify2FA) and every CLI→Adapter message includes `totp_code`. MTM/adapter validates current TOTP using stored secret (MTM) or forwarded secret (adapter). Invalid codes rejected.
+- [ ] **SEC-07**: Adapter receives `totp_secret` from MTM via stdin during spawn, stores in memory for TOTP verification on all CLI requests. Adapter validates `totp_code` on each request.
+- [ ] **SEC-08**: Adapter→MTM control messages also include `totp_code`; MTM validates before processing `AllocateTunnel`, `ReleaseTunnel`, etc.
+- [ ] **SEC-09**: Setup protection: `protonvpn setup-2fa` displays QR code and backup codes, warns user to store securely. MTM stores only encrypted TOTP secret; plaintext secret never retrievable.
+- [ ] **SEC-10**: Clock skew tolerance: TOTP verification accepts current time step ±1 to accommodate device clock drift.
 
 ### Testing & Quality
 
@@ -85,6 +92,22 @@
 - **PERF-01**: Adapter startup latency optimization: async login, pre-warm connections
 - **PERF-02**: Connection pooling within adapter to reduce VPN reauthentication overhead
 
+### Session Observability
+
+- **OBSV-01**: CLI can query adapter for real-time traffic statistics (bytes in/out, connection count, request rate)
+- **OBSV-02**: Adapter exposes session metadata (uptime, endpoint, protocol, current bandwidth)
+
+### Firewall & Access Control
+
+- **FWL-01**: Per-tunnel firewall rules configurable (allow/deny new inbound connections)
+- **FWL-02**: Adapter can enforce connection quotas or rate limits per tunnel
+
+### NTM Integration
+
+- **NTM-01**: Adapter can query Network Traffic Manager for policy on new connection/flow
+- **NTM-02**: If traffic not allowed by default, adapter sends request to NTM for dynamic allowance
+- **NTM-03**: NTM responses cached to avoid repeated requests for same flow
+
 ---
 
 ## Out of Scope
@@ -116,6 +139,16 @@
 | CLI-01 | Phase 1 | Pending |
 | CLI-02 | Phase 1 | Pending |
 | TST-04 | Phase 1 | Pending |
+| SEC-01 | Phase 1 | Pending |
+| SEC-02 | Phase 1 | Pending |
+| SEC-03 | Phase 1 | Pending |
+| SEC-04 | Phase 1 | Pending |
+| SEC-05 | Phase 1 | Pending |
+| SEC-06 | Phase 1 | Pending |
+| SEC-07 | Phase 1 | Pending |
+| SEC-08 | Phase 1 | Pending |
+| SEC-09 | Phase 1 | Pending |
+| SEC-10 | Phase 1 | Pending |
 | ADPT-04 | Phase 2 | Pending |
 | ADPT-05 | Phase 2 | Pending |
 | CLI-03 | Phase 2 | Pending |
@@ -127,9 +160,6 @@
 | DAEM-06 | Phase 3 | Pending |
 | COMP-01 | Phase 4 | Pending |
 | COMP-02 | Phase 4 | Pending |
-| SEC-01 | Phase 4 | Pending |
-| SEC-02 | Phase 4 | Pending |
-| SEC-03 | Phase 4 | Pending |
 | TST-01 | Phase 4 | Pending |
 | TST-02 | Phase 4 | Pending |
 | TST-03 | Phase 4 | Pending |
@@ -138,8 +168,8 @@
 | DOC-03 | Phase 4 | Pending |
 
 **Coverage:**
-- v1 requirements: 29 total
-- Mapped to phases: 29
+- v1 requirements: 34 total (29 original + 5 security)
+- Mapped to phases: 34
 - Unmapped: 0 ✓
 
 ---

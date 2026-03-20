@@ -39,7 +39,110 @@ Establish the fundamental adapter process pattern with dual Unix sockets (CLI en
   ```
 - String error codes: uppercase_with_underscores (e.g., `DEVICE_NOT_FOUND`, `INVALID_REQUEST`)
 - Authentication: MTM verifies peer credentials via `SO_PEERCRED` on control socket connections; rejects mismatches between claimed username and actual UID
-- No session tokens in Phase 1 (deferred to later for added security)
+
+### CLI-Level 2FA with Per-Request TOTP
+
+**Purpose:** Ensure only authorized users (possessing TOTP device) can manage VPN tunnels, independent of OS user authentication.
+
+**Threat model:** Prevent unauthorized local use of `protonvpn` CLI commands, even by users with shell access but without TOTP device.
+
+**Security model:** MTM is the sole keeper of the user's TOTP secret. CLI never stores secrets. Adapter receives TOTP secret at spawn and validates per-request TOTP codes. Every request (CLI→MTM, CLI→Adapter, Adapter→MTM) includes a fresh TOTP code for that time window.
+
+**Setup Phase (One-Time):**
+```
+$ protonvpn setup-2fa --scan-qr  # or manual secret entry
+```
+- MTM generates 160-bit TOTP secret for this user
+- Stores TOTP secret **encrypted** in system keyring (libsecret)
+- Displays QR code and backup codes, warns user to store securely
+- Secret never displayed again; cannot be retrieved from MTM
+
+**Normal Operation Flow:**
+
+1. **User runs command:**
+   ```
+   $ protonvpn tunnel create personal --country US
+   TOTP Code: 123456
+   ```
+   CLI reads TOTP code from user (never stores it).
+
+2. **CLI → MTM: StartAdapter with TOTP**
+   ```json
+   {
+     "method": "StartAdapter",
+     "params": {
+       "adapter_type": "wireguard",
+       "credentials": { "username": "...", "password": "...", "twofa": "..." },
+       "totp_code": "123456"
+     }
+   }
+   ```
+   MTM:
+   - Decrypts stored TOTP secret from keyring
+   - Verifies `totp_code` (current ±1 time step)
+   - If invalid → `INVALID_2FA` error
+   - If valid → proceed to spawn adapter
+
+3. **MTM spawns adapter:**
+   - MTM passes to adapter via **stdin**:
+     ```json
+     {
+       "session_id": "uuid",
+       "totp_secret": "JBSWY3DPEHPK3PXP",
+       "vpn_credentials": { ... }
+     }
+     ```
+   - Adapter reads stdin, stores `totp_secret` in memory (for later CLI request verification)
+   - Adapter immediately zeroes stdin buffer
+   - Adapter binds CLI socket, connects to MTM control socket
+   - Adapter sends `Register` control message (with `session_id`, `adapter_type`, `username`)
+   - Adapter performs VPN login, then zeroes credential buffers (keep only VPN session tokens)
+   - MTM returns to CLI: `{ "endpoint": "unix:///run/mtm/adapters/..." }` (no session token)
+
+4. **CLI → Adapter: CreateTunnel with TOTP**
+   - CLI prompts user for **another** TOTP code (fresh 30s window):
+     ```
+     TOTP Code: 654321
+     ```
+   - CLI connects to adapter socket, sends:
+     ```json
+     {
+       "action": "CreateTunnel",
+       "totp_code": "654321",
+       "tunnel_name": "personal",
+       "config": { ... }
+     }
+     ```
+   - **Adapter validates TOTP:**
+     - Compute expected TOTP from stored `totp_secret`
+     - Constant-time compare with `totp_code`
+     - Invalid → log WARNING, close connection or return `{"error": "INVALID_2FA"}`
+     - Valid → process request
+
+5. **Adapter → MTM: AllocateTunnel with TOTP**
+   ```json
+   {
+     "action": "AllocateTunnel",
+     "totp_code": "654321",
+     "session_id": "uuid",
+     "tunnel_name": "personal",
+     "device": "...", "gateway": "...", "dns": [...]
+   }
+   ```
+   - **MTM validates TOTP:**
+     - Look up user by `session_id`
+     - Decrypt user's TOTP secret from keyring
+     - Verify `totp_code`
+     - Invalid → reject with `INVALID_2FA`
+     - Valid → allocate namespace, configure, reply
+
+**Key properties:**
+- Every request carries a fresh TOTP code (user prompted each time)
+- No persistent session tokens; TOTP is the per-request credential
+- TOTP secret known only to MTM (persisted encrypted) and adapter (in-memory during lifetime)
+- Adapter must validate TOTP on every CLI request
+- MTM must validate TOTP on every control message from adapter
+- Clock skew tolerance: ±1 time step (30s) to accommodate device clock drift
 
 ### Dummy Adapter Behavior
 
@@ -117,6 +220,70 @@ Establish the fundamental adapter process pattern with dual Unix sockets (CLI en
 - Adapter memory retains **only** VPN protocol session tokens/keys (e.g., access tokens, session cookies, WireGuard private key) for as long as needed to operate tunnels
 - Plaintext username/password/2FA never persist beyond login completion
 - When adapter process exits, OS reclaims all memory
+
+### Token Authentication Model (CLI-Level 2FA)
+
+**Purpose:** Ensure only authorized users (possessing TOTP device) can manage VPN tunnels, independent of OS user authentication.
+
+**Threat model:** Prevent unauthorized local use of `protonvpn` CLI commands, even by users with shell access but without TOTP device.
+
+**Three trusted parties:**
+1. **User** — possesses OTP device (YubiKey, phone, etc.) with TOTP secret
+2. **MTM** — the only component that knows the TOTP secret; stored securely (encrypted at rest using libsecret/keyring)
+3. **CLI** — never stores any secrets; only holds short-lived session tokens in memory
+4. **Adapter** — receives token validation capability from MTM at spawn; validates CLI's session token on each request
+
+**Setup Phase (One-Time):**
+```
+$ protonvpn setup-2fa --scan-qr  # or manual secret entry
+```
+- MTM generates/registers a TOTP secret for this user
+- Warns: "Store this 2FA key securely. It will not be shown again."
+- MTM stores TOTP secret encrypted (system keyring)
+- User adds secret to their OTP device
+
+**Normal Operation Flow:**
+
+1. **CLI session start with 2FA:**
+   ```
+   $ protonvpn tunnel create ...
+   TOTP Code: 123456
+   ```
+   - CLI sends TOTP to MTM via D-Bus: `Verify2FA(totp_code)`
+   - MTM checks against stored TOTP secret:
+     - Valid → issues `cli_session_token` (random, 15min TTL)
+     - Invalid → reject
+   - CLI caches token in memory for TTL
+
+2. **CLI → MTM D-Bus calls:**
+   - Every D-Bus call includes `cli_session_token` in metadata
+   - MTM validates token (exists, not expired)
+   - If valid → process request
+   - If invalid/expired → `AUTH_EXPIRED`, CLI re-prompts for TOTP
+
+3. **MTM spawns adapter:**
+   - MTM passes to adapter (via stdin or protected control message):
+     - `session_token` (unique per adapter instance, so adapter can bind CLI to this specific adapter)
+     - `cli_2fa_verification_key` (symmetric key or TOTP secret itself) so adapter can independently verify CLI's TOTP token if needed
+   - Simpler: MTM includes `allowed_session_token` in `Register` response; adapter validates that incoming CLI messages present this exact token. No crypto needed.
+
+**Design Decision: Adapter token validation simplified.**
+
+Since MTM already verified CLI 2FA before spawning the adapter, the adapter can trust that any CLI possessing the `session_token` is legitimate. The adapter only needs to check that the `session_token` matches the one it expects for its session. This avoids:
+- Passing TOTP secrets to adapters (reduces secret distribution)
+- Adapter needing to validate TOTP independently (MTM already did)
+- Complex key management across processes
+
+**Protocol:**
+- Adapter stores `expected_session_token` from MTM at spawn
+- Every CLI→Adapter message includes `session_token`
+- Adapter accepts if `msg.session_token == expected_session_token`
+- No expiration check on adapter side; if MTM's token expires, adapter continues to accept it for existing session (MTM won't spawn new adapters with expired token)
+
+**Rationale:** Trust boundary is MTM→adapter at spawn time. After that, adapter enforces session binding only. That's sufficient because:
+- Only MTM can spawn adapter with a given session token
+- Only CLI with valid token can connect to adapter (token acts as shared secret)
+- Compromise of adapter doesn't expose TOTP secret (only the session token, which is short-lived)
 
 ---
 
@@ -196,7 +363,7 @@ Establish the fundamental adapter process pattern with dual Unix sockets (CLI en
 <deferred>
 ## Deferred Ideas
 
-- Session token authentication on control channel (Phase 2/4 security hardening)
+- Real TOTP verification (Phase 4): Replace dummy tokens with actual `Verify2FA(totp_code)` using stored TOTP secret; Phase 1 implements token infrastructure without secret checks
 - Adapter internal credential map and protocol-specific multi-session logic (beyond simple global session)
 - NTM integration: firewall rules, traffic manager requests, per-tunnel policies
 - Structured logging (JSON) and correlation IDs
