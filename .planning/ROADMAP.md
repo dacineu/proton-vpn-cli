@@ -9,7 +9,7 @@
 
 | Phase | Name | Goal | Requirements | Success Criteria |
 |-------|------|------|--------------|------------------|
-| 1 | Foundation: Adapter Lifecycle & Core Protocol | Establish fundamental adapter pattern with dual sockets and working Dummy adapter | DAEM-01, DAEM-02, ADPT-01, ADPT-02, ADPT-03, ADPT-06, CLI-01, CLI-02, TST-04, SEC-04, SEC-05, SEC-06, SEC-07 | 4 |
+| 1 | 1/6 | In Progress|  | 4 |
 | 2 | Proton Adapter & CLI Integration | Migrate Proton adapter to new model; integrate CLI direct flow | ADPT-04, ADPT-05, CLI-03, CLI-04, CLI-05 | 3 |
 | 3 | Resource Management & Isolation | Implement namespace allocation, cleanup, and adapter lifecycle management | DAEM-03, DAEM-04, DAEM-05, DAEM-06 | 4 |
 | 4 | Polish, Security & Compatibility | Harden security, preserve legacy API, complete testing and docs | COMP-01, COMP-02, SEC-01, SEC-02, SEC-03, SEC-08, TST-01, TST-02, TST-03, DOC-01, DOC-02, DOC-03 | 4 |
