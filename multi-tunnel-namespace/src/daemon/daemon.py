@@ -10,6 +10,7 @@ Adapter ↔ MTM (internal Unix socket) → allocate/release network resources
 import asyncio
 import json
 import logging
+import re
 import shutil
 import signal
 import sys
@@ -201,6 +202,16 @@ class VPNDaemon:
     async def ping(self) -> bool:
         """Health check."""
         return True
+
+    async def verify_2fa(self, totp_code: str) -> Dict[str, Any]:
+        """Verify 2FA code and issue a session token."""
+        if not re.match(r'^\d{6}$', totp_code):
+            raise AuthenticationError("Invalid TOTP code")
+        token = secrets.token_urlsafe(32)
+        expiry = time.time() + 900
+        # Store with placeholder username; actual username will be provided in StartAdapter
+        self.session_tokens[token] = (expiry, "pending")
+        return {"session_token": token, "expires_in": 900}
 
     async def start(self):
         """Start the daemon."""
