@@ -146,6 +146,40 @@ class ManagerClient:
         """Get capabilities for an adapter."""
         return await self._call('GetAdapterCapabilities', {'adapter': adapter})
 
+    async def start_adapter(
+        self,
+        adapter_type: str,
+        credentials: Dict[str, Any],
+        session_token: Optional[str] = None,
+        totp_code: Optional[str] = None
+    ) -> str:
+        """
+        Ensure adapter is running and return its CLI endpoint.
+
+        If totp_code is provided, first call verify_2fa to obtain a session_token.
+
+        Returns:
+            Endpoint string (e.g., 'unix:///run/mtm/adapters/alice_dummy.sock')
+
+        Raises:
+            TunnelError: If adapter startup fails or authentication is invalid.
+        """
+        if totp_code:
+            result = await self.verify_2fa(totp_code)
+            session_token = result.get('session_token')
+            if not session_token:
+                raise TunnelError("Failed to obtain session token from 2FA verification")
+
+        params = {
+            'adapter_type': adapter_type,
+            'credentials': credentials,
+        }
+        if session_token:
+            params['session_token'] = session_token
+
+        result = await self._call('StartAdapter', params)
+        return result['endpoint']
+
     async def ping(self) -> bool:
         """Health check."""
         return bool(await self._call('Ping', {}))
