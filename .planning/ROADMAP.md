@@ -9,12 +9,12 @@
 
 | Phase | Name | Goal | Requirements | Success Criteria |
 |-------|------|------|--------------|------------------|
-| 1 | Foundation: Adapter Lifecycle & Core Protocol | Establish fundamental adapter pattern with dual sockets and working Dummy adapter | DAEM-01, DAEM-02, ADPT-01, ADPT-02, ADPT-03, ADPT-06, CLI-01, CLI-02, TST-04 | 3 |
+| 1 | Foundation: Adapter Lifecycle & Core Protocol | Establish fundamental adapter pattern with dual sockets and working Dummy adapter | DAEM-01, DAEM-02, ADPT-01, ADPT-02, ADPT-03, ADPT-06, CLI-01, CLI-02, TST-04, SEC-04, SEC-05, SEC-06, SEC-07 | 4 |
 | 2 | Proton Adapter & CLI Integration | Migrate Proton adapter to new model; integrate CLI direct flow | ADPT-04, ADPT-05, CLI-03, CLI-04, CLI-05 | 3 |
 | 3 | Resource Management & Isolation | Implement namespace allocation, cleanup, and adapter lifecycle management | DAEM-03, DAEM-04, DAEM-05, DAEM-06 | 4 |
-| 4 | Polish, Security & Compatibility | Harden security, preserve legacy API, complete testing and docs | COMP-01, COMP-02, SEC-01, SEC-02, SEC-03, TST-01, TST-02, TST-03, DOC-01, DOC-02, DOC-03 | 4 |
+| 4 | Polish, Security & Compatibility | Harden security, preserve legacy API, complete testing and docs | COMP-01, COMP-02, SEC-01, SEC-02, SEC-03, SEC-08, TST-01, TST-02, TST-03, DOC-01, DOC-02, DOC-03 | 4 |
 
-**Total:** 4 phases | 29 requirements | 11 success criteria
+**Total:** 4 phases | 34 requirements | 15 success criteria
 
 ---
 
@@ -29,18 +29,20 @@
 - ADPT-01, ADPT-02, ADPT-03, ADPT-06
 - CLI-01, CLI-02
 - TST-04
+- SEC-04, SEC-05, SEC-06, SEC-07 (CLI-level 2FA token infrastructure)
 
 **Success Criteria:**
 
 1. **Adapter startup works**: `ManagerClient.start_adapter("dummy", creds)` returns adapter endpoint; adapter process runs, binds CLI socket, connects to MTM control socket, and sends `Register`.
 2. **Dummy tunnel creation**: `AdapterClient` connects to adapter, sends `CreateTunnel`, receives dummy tunnel response (`device: "dummy0"`, etc.) without touching real network.
 3. **Concurrent connections**: Multiple simultaneous CLI connections to the same adapter handled correctly (asyncio lock protects `self.tunnels`).
+4. **Token authentication works**: Phase 1 implements token infrastructure with dummy tokens; `StartAdapter` accepts and passes `session_token` to adapter; adapter validates `session_token` on CLI requests (full TOTP in Phase 4).
 
 **Key Deliverables:**
-- `daemon/daemon.py`: `AdapterProcess` class, `StartAdapter()` D-Bus method, `ListAdapters()`, basic adapter_pool tracking
-- `adapters/dummy/cli.py` (new): dual-server pattern, stdin credential reading, Register to MTM, dummy CreateTunnel handler
-- `libvpnmanager/client.py`: `start_adapter()`, `AdapterClient` with JSON-RPC
-- Integration smoke test using Dummy adapter
+- `daemon/daemon.py`: `AdapterProcess` class, `StartAdapter()` D-Bus method, `ListAdapters()`, basic adapter_pool tracking, session token handling
+- `adapters/dummy/cli.py` (new): dual-server pattern, stdin credential reading, Register to MTM, dummy CreateTunnel handler, session token validation
+- `libvpnmanager/client.py`: `start_adapter()`, `AdapterClient` with JSON-RPC, session token propagation
+- Integration smoke test using Dummy adapter with token validation
 
 ---
 
