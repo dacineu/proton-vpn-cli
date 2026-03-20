@@ -44,9 +44,14 @@ class AdapterRegistry:
         self._lock = asyncio.Lock()
         self._idle_timeout = 300.0  # seconds of inactivity before terminating adapter
         self._cleanup_task: Optional[asyncio.Task] = None
+        self._resource_allocator = None  # type: Optional[ResourceAllocator]
 
         # Ensure adapter_dir exists
         self.adapter_dir.mkdir(parents=True, exist_ok=True)
+
+    def set_resource_allocator(self, allocator):
+        """Set the resource allocator for crash cleanup."""
+        self._resource_allocator = allocator
 
     async def start_cleanup_task(self):
         """Start background task that cleans up idle adapters."""
@@ -140,6 +145,9 @@ class AdapterRegistry:
                 key = (instance.adapter_type, instance.session_name)
                 self.adapters.pop(key, None)
                 logger.info(f"Adapter {instance.adapter_type} (session={instance.session_name}) exited (pid={pid})")
+                # Trigger crash cleanup: release all tunnels held by this adapter
+                if self._resource_allocator and hasattr(instance, 'session_id') and instance.session_id:
+                    asyncio.create_task(self._resource_allocator.release_adapter_tunnels(instance))
                 return True
             return False
 

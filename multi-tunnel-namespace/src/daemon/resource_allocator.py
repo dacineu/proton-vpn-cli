@@ -192,3 +192,15 @@ class ResourceAllocator:
         except Exception as e:
             logger.error(f"Release failed for tunnel {tunnel_name}: {e}")
             return {"msg_type": "error", "error": str(e)}
+
+    async def release_adapter_tunnels(self, adapter) -> None:
+        """Release all tunnels belonging to a crashed/disconnected adapter."""
+        if not hasattr(adapter, 'tunnels') or not adapter.tunnels:
+            return
+        for tunnel_name in list(adapter.tunnels):
+            try:
+                await self.routing.destroy_tunnel_context(tunnel_name, {})
+                logger.info(f"Released tunnel {tunnel_name} from crashed adapter {adapter.adapter_type}/{adapter.session_name}")
+                adapter.tunnels.discard(tunnel_name)
+            except Exception as e:
+                logger.error(f"Failed to release tunnel {tunnel_name}: {e}")
