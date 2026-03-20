@@ -159,6 +159,16 @@ class ManagerClient:
 
         If totp_code is provided, first call verify_2fa to obtain a session_token.
 
+        Example:
+            async with ManagerClient() as mgr:
+                endpoint = await mgr.start_adapter(
+                    'dummy',
+                    {'username': 'alice', 'password': 'pw'},
+                    totp_code='123456'
+                )
+                async with AdapterClient(endpoint) as adapter:
+                    tunnel = await adapter.create_tunnel('personal', config)
+
         Returns:
             Endpoint string (e.g., 'unix:///run/mtm/adapters/alice_dummy.sock')
 
