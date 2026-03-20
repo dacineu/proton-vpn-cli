@@ -25,6 +25,7 @@ class AdapterInstance:
     session_id: Optional[str] = None
     username: Optional[str] = None
     tunnels: set = field(default_factory=set)
+    expected_session_token: Optional[str] = None
 
 
 class AdapterRegistry:

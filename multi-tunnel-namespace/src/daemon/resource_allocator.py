@@ -124,12 +124,37 @@ class ResourceAllocator:
     async def _dispatch(self, request: Dict[str, Any], adapter) -> Dict[str, Any]:
         msg_type = request.get("msg_type")
 
+        # Token validation if expected_session_token is set
+        if adapter.expected_session_token is not None:
+            client_token = request.get('session_token')
+            if client_token != adapter.expected_session_token:
+                logger.warning(f"Invalid session token from adapter {adapter.adapter_type}")
+                return {"msg_type": "error", "error": "INVALID_SESSION", "code": "INVALID_SESSION"}
+
         if msg_type == "allocate":
             return await self._handle_allocate(request, adapter)
+        elif msg_type == "register":
+            return await self._handle_register(request, adapter)
         elif msg_type == "release":
             return await self._handle_release(request, adapter)
         else:
             return {"msg_type": "error", "error": f"Unknown msg_type: {msg_type}"}
+
+    async def _handle_register(self, request: Dict[str, Any], adapter) -> Dict[str, Any]:
+        """Handle adapter registration."""
+        session_id = request.get('session_id')
+        adapter_type = request.get('adapter_type')
+        username = request.get('username')
+        if not all([session_id, adapter_type, username]):
+            return {'msg_type': 'error', 'error': 'Missing register fields'}
+        # Store registration info in adapter instance
+        adapter.session_id = session_id
+        adapter.username = username
+        adapter.tunnels = set()
+        # Store expected session token if provided (Phase 1: may be None initially)
+        adapter.expected_session_token = request.get('session_token')
+        logger.info(f'Adapter registered: {adapter_type} user={username} session={session_id}')
+        return {'msg_type': 'registered', 'control_socket': self.socket_path}
 
     async def _handle_allocate(self, request: Dict[str, Any], adapter) -> Dict[str, Any]:
         tunnel_name = request.get("tunnel_name")
