@@ -1,30 +1,121 @@
 {
   "version": "1.0",
-  "timestamp": "2026-03-20T12:29:49.652Z",
-  "phase": "1",
-  "phase_name": "Foundation: Adapter Lifecycle & Core Protocol",
-  "phase_dir": "01-foundation",
-  "plan": null,
-  "task": null,
-  "total_tasks": null,
-  "status": "paused_before_planning",
+  "timestamp": "2026-03-20T13:27:49.188Z",
+  "phase": "01",
+  "phase_name": "Foundation — Adapter Lifecycle & Core Protocol",
+  "phase_dir": ".planning/phases/01-foundation",
+  "plan": 1,
+  "task": 0,
+  "total_tasks": 20,
+  "status": "ready_for_execution",
   "completed_tasks": [
-    {"id": 1, "name": "Capture phase context (discuss-phase)", "status": "done", "commit": "8ae5197"},
-    {"id": 2, "name": "Update requirements with TOTP 2FA design", "status": "done", "commit": "cc9c83b"}
+    {
+      "id": 1,
+      "name": "Discuss phase (gsd:discuss-phase 1)",
+      "status": "done",
+      "commit": null,
+      "summary": "Captured all implementation decisions in 1-CONTEXT.md including Token Authentication Model, socket paths, control protocol, adapter lifecycle, error handling, credential security."
+    },
+    {
+      "id": 2,
+      "name": "Update REQUIREMENTS.md with security requirements",
+      "status": "done",
+      "commit": null,
+      "summary": "Added SEC-01 through SEC-10 (10 security requirements). Refined: SEC-04/05/06/07 to Phase 1, SEC-08 to Phase 4. Total requirements: 34."
+    },
+    {
+      "id": 3,
+      "name": "Update ROADMAP.md",
+      "status": "done",
+      "commit": null,
+      "summary": "Expanded Phase 1 to include SEC-04/05/06/07. Updated success criteria to include token authentication. Totals: 34 requirements, 15 success criteria across 4 phases."
+    },
+    {
+      "id": 4,
+      "name": "Create PLAN.md (1-PLAN.md)",
+      "status": "done",
+      "commit": null,
+      "summary": "Manual creation (agent credit error). 4 waves, 20 tasks with read_first, concrete action, acceptance_criteria. Covers all 13 Phase 1 requirements."
+    },
+    {
+      "id": 5,
+      "name": "Verify plan quality",
+      "status": "done",
+      "commit": null,
+      "summary": "Confirmed all requirements mapped, waves assigned, dependencies clear, acceptance criteria concrete and verifiable."
+    }
   ],
   "remaining_tasks": [
-    {"id": 3, "name": "Plan Phase 1 (gsd:plan-phase 1)", "status": "not_started"},
-    {"id": 4, "name": "Execute Phase 1 plans (gsd:execute-phase 1)", "status": "not_started"}
+    {"id": 1, "wave": 1, "name": "Read and understand existing daemon structure", "status": "not_started"},
+    {"id": 2, "wave": 1, "name": "Add adapter_pool tracking to VPNDaemon", "status": "not_started"},
+    {"id": 3, "wave": 1, "name": "Implement StartAdapter D-Bus method", "status": "not_started"},
+    {"id": 4, "wave": 1, "name": "Implement _spawn_adapter in VPNDaemon", "status": "not_started"},
+    {"id": 5, "wave": 1, "name": "Implement adapter process monitor", "status": "not_started"},
+    {"id": 6, "wave": 1, "name": "Implement ListAdapters D-Bus method", "status": "not_started"},
+    {"id": 7, "wave": 1, "name": "Implement control socket server in daemon", "status": "not_started"},
+    {"id": 8, "wave": 2, "name": "Create dummy adapter base class (if not exists)", "status": "not_started"},
+    {"id": 9, "wave": 2, "name": "Implement DummyAdapter CLI with dual-server", "status": "not_started"},
+    {"id": 10, "wave": 2, "name": "Implement DummyAdapter tunnel creation and token validation", "status": "not_started"},
+    {"id": 11, "wave": 2, "name": "Implement control message handler in adapter", "status": "not_started"},
+    {"id": 12, "wave": 2, "name": "Handle Register handshake with token exchange", "status": "not_started"},
+    {"id": 13, "wave": 3, "name": "Add start_adapter method to ManagerClient", "status": "not_started"},
+    {"id": 14, "wave": 3, "name": "Create AdapterClient class for direct adapter communication", "status": "not_started"},
+    {"id": 15, "wave": 3, "name": "Implement AdapterClient convenience methods", "status": "not_started"},
+    {"id": 16, "wave": 4, "name": "Create integration test fixture for daemon", "status": "not_started"},
+    {"id": 17, "wave": 4, "name": "Create integration test for adapter startup with token", "status": "not_started"},
+    {"id": 18, "wave": 4, "name": "Create integration test for token-protected CreateTunnel", "status": "not_started"},
+    {"id": 19, "wave": 4, "name": "Create integration test for token rejection", "status": "not_started"},
+    {"id": 20, "wave": 4, "name": "Create integration test for concurrent connections", "status": "not_started"}
   ],
   "blockers": [],
   "human_actions_pending": [],
   "decisions": [
-    {"decision": "Per-request TOTP 2FA", "rationale": "No session tokens; each CLI request includes fresh TOTP code. MTM stores TOTP secret encrypted, passes to adapter via stdin. Adapter validates on every CLI request. MTM validates on control messages.", "phase": "1"},
-    {"decision": "Socket paths: /run/mtm/adapters/{user}_{type}.sock and /run/mtm/control/{user}_{type}.sock", "rationale": "Per-adapter control socket with 0600 perms; SO_PEERCRED verification", "phase": "1"},
-    {"decision": "Adapter validates session_token only (not separate cli_2fa_token)", "rationale": "MTM already verified TOTP before spawning; adapter trust boundary established at spawn", "phase": "1"},
-    {"decision": "Credentials via stdin and zeroization after VPN login", "rationale": "Avoid /proc exposure; minimize credential lifetime in memory", "phase": "1"}
+    {
+      "decision": "Per-request TOTP 2FA without session tokens",
+      "rationale": "Simpler model: every request carries fresh TOTP. MTM validates against stored secret. Adapter gets in-memory copy to validate independently. Phase 1 uses dummy tokens for infrastructure; Phase 4 adds real TOTP.",
+      "phase": "1"
+    },
+    {
+      "decision": "Adapter validates only session_token (not separate cli_2fa_token)",
+      "rationale": "MTM already verified TOTP before spawning adapter. Adapter only needs to bind CLI to this specific adapter session. This reduces secret distribution and crypto complexity.",
+      "phase": "1"
+    },
+    {
+      "decision": "Credentials via stdin, not environment",
+      "rationale": "Avoid /proc exposure; minimize credential lifetime in memory",
+      "phase": "1"
+    },
+    {
+      "decision": "Socket paths: /run/mtm/adapters/{username}_{adapter_type}.sock and /run/mtm/control/{username}_{adapter_type}.sock",
+      "rationale": "Per-user, per-type isolation. predictable naming. Control socket separate from CLI traffic.",
+      "phase": "1"
+    },
+    {
+      "decision": "Control protocol: NDJSON with SO_PEERCRED",
+      "rationale": "Simple line-based framing. Peer credentials verification prevents impersonation. Error format standardized.",
+      "phase": "1"
+    },
+    {
+      "decision": "Dummy adapter realistic simulation with varying device names and artificial delays",
+      "rationale": "Ensures test suite exercises same code paths as real adapter without needing actual VPN connection. Makes tests deterministic yet realistic.",
+      "phase": "1"
+    }
   ],
-  "uncommitted_files": [".planning/config.json (modified)"],
-  "next_action": "Run /gsd:plan-phase 1 to create detailed implementation plans",
-  "context_notes": "Phase 1 context complete. Full TOTP per-request 2FA design captured. Ready to plan implementation: daemon adapter lifecycle, dual-socket pattern, dummy adapter with AllocateTunnel, token infrastructure."
+  "uncommitted_files": [
+    ".planning/REQUIREMENTS.md",
+    ".planning/ROADMAP.md",
+    ".planning/phases/01-foundation/1-CONTEXT.md",
+    ".planning/phases/01-foundation/1-PLAN.md",
+    ".planning/phases/01-foundation/.continue-here.md"
+  ],
+  "next_action": "Execute Phase 1 with: /gsd:execute-phase 1 (preferably after `/clear` for fresh context). Executor will implement Waves 1-4 in dependency order, verifying acceptance criteria and running integration tests.",
+  "context_notes": "Phase 1 planning completed successfully despite agent credit issue (manual PLAN.md created). Security model well-defined with CLI-level 2FA as core innovation. All 13 requirements mapped to concrete tasks. No blockers. Ready for implementation.",
+  "execution_readiness": {
+    "plan_quality": "pass",
+    "requirements_coverage": "13/13",
+    "tasks_defined": 20,
+    "waves": 4,
+    "verification_criteria": "all requirements mapped to testable outcomes",
+    "notes": "Plan created manually as fallback; verified against GSD quality gate (read_first, concrete action, acceptance_criteria)."
+  }
 }
