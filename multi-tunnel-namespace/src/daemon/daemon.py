@@ -162,7 +162,7 @@ class VPNDaemon:
 
     # Public IPC methods
 
-    async def list_adapters(self) -> List[str]:
+    async def list_available_adapters(self) -> List[str]:
         """List available adapter types (those with executables)."""
         if self.enabled_adapters is not None:
             return [a for a in self.enabled_adapters if self._find_adapter_executable(a)]
@@ -225,8 +225,8 @@ class VPNDaemon:
 
     async def start_adapter(self, adapter_type: str, credentials: Dict[str, Any], session_token: Optional[str] = None) -> Dict[str, Any]:
         """Start an adapter process with credentials, returning its control endpoint."""
-        # Validate adapter_type is available
-        if adapter_type not in await self.list_adapters():
+        # Validate adapter_type is available (exists in capabilities and has executable)
+        if adapter_type not in ADAPTER_CAPABILITIES or not self._find_adapter_executable(adapter_type):
             raise AdapterNotFoundError(f"Adapter '{adapter_type}' not available")
 
         # Extract username from credentials
@@ -296,6 +296,18 @@ class VPNDaemon:
             del self.session_tokens[session_token]
 
         return {'endpoint': f'unix://{cli_socket_path}'}
+
+    async def list_adapters(self, username: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List running adapter instances, optionally filtered by username."""
+        result = []
+        for (adapter_type, uname), endpoint in self.adapter_pool.items():
+            if username is None or uname == username:
+                result.append({
+                    'adapter_type': adapter_type,
+                    'username': uname,
+                    'endpoint': endpoint
+                })
+        return result
 
     async def start(self):
         """Start the daemon."""
