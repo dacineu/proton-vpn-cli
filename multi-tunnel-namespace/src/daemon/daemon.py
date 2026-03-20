@@ -223,6 +223,80 @@ class VPNDaemon:
         self.session_tokens[token] = (expiry, "pending")
         return {"session_token": token, "expires_in": 900}
 
+    async def start_adapter(self, adapter_type: str, credentials: Dict[str, Any], session_token: Optional[str] = None) -> Dict[str, Any]:
+        """Start an adapter process with credentials, returning its control endpoint."""
+        # Validate adapter_type is available
+        if adapter_type not in await self.list_adapters():
+            raise AdapterNotFoundError(f"Adapter '{adapter_type}' not available")
+
+        # Extract username from credentials
+        vpn_username = credentials.get('username')
+        if not vpn_username:
+            raise ValueError("Credentials must include 'username'")
+
+        # Check adapter_pool for existing instance
+        key = (adapter_type, vpn_username)
+        if key in self.adapter_pool:
+            return {'endpoint': self.adapter_pool[key]}
+
+        # Validate session token if provided
+        if session_token is None:
+            raise AuthenticationError("Session token required")
+        if session_token not in self.session_tokens:
+            raise AuthenticationError("Invalid session token")
+        expiry, stored_username = self.session_tokens[session_token]
+        if time.time() > expiry:
+            del self.session_tokens[session_token]
+            raise AuthenticationError("Session token expired")
+        # Optionally verify stored_username matches (if not pending); for now allow any
+
+        # Generate session ID
+        session_id = str(uuid.uuid4())
+
+        # Create socket path using username (per plan)
+        cli_socket_path = f"/run/mtm/adapters/{vpn_username}_{adapter_type}.sock"
+
+        # Ensure directory exists and remove stale socket
+        socket_path = Path(cli_socket_path)
+        if not socket_path.parent.exists():
+            socket_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            socket_path.unlink(missing_ok=True)
+        except Exception as e:
+            logger.warning(f"Could not remove stale socket {cli_socket_path}: {e}")
+
+        # Spawn adapter with credentials via stdin
+        # Use the session_id as the session_name for registry tracking
+        proc = await self._spawn_adapter(adapter_type, session_id, DummySession(adapter=adapter_type, session_name=session_id, username=vpn_username, metadata={}), cli_socket_path, credentials)
+
+        # Wait for socket to become available (up to 10 seconds)
+        timeout = 10.0
+        start = time.time()
+        while time.time() - start < timeout:
+            if socket_path.exists():
+                break
+            await asyncio.sleep(0.05)
+        else:
+            raise AdapterError(f"Adapter socket {cli_socket_path} not created within {timeout}s")
+
+        # Register with adapter_registry
+        self.adapter_registry.register(
+            pid=proc.pid,
+            adapter_type=adapter_type,
+            session_name=session_id,
+            process=proc,
+            control_socket=cli_socket_path
+        )
+
+        # Add to adapter_pool
+        self.adapter_pool[key] = f"unix://{cli_socket_path}"
+
+        # Consume session token
+        if session_token in self.session_tokens:
+            del self.session_tokens[session_token]
+
+        return {'endpoint': f'unix://{cli_socket_path}'}
+
     async def start(self):
         """Start the daemon."""
         logger.info("Starting MTM daemon...")
