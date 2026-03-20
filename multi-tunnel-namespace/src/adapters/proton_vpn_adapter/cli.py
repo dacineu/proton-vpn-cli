@@ -197,7 +197,10 @@ async def main():
         payload = json.loads(payload_json)
         vpn_credentials = payload['vpn_credentials']
         session_id = payload['session_id']
-        vpn_username = payload['vpn_username']
+        # Username is inside vpn_credentials, not top-level
+        vpn_username = vpn_credentials.get('username')
+        if not vpn_username:
+            raise KeyError('username')
         session_token = payload.get('session_token')
     except KeyError as e:
         logger.error(f"Missing required field in payload: {e}")

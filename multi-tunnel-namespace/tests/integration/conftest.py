@@ -5,6 +5,15 @@ import asyncio
 import sys
 from pathlib import Path
 
+# Add mocks to sys.path BEFORE any src imports so that proton.vpn.core.api
+# is intercepted by the mock package when the adapter imports it.
+MOCKS_PATH = Path(__file__).parent / "mocks"
+if str(MOCKS_PATH) not in sys.path:
+    sys.path.insert(0, str(MOCKS_PATH))
+
+# Also add to PYTHONPATH so that subprocesses (adapter executables) can import the mock package.
+os.environ['PYTHONPATH'] = str(MOCKS_PATH) + ':' + os.environ.get('PYTHONPATH', '')
+
 # Ensure src is in path for imports
 SRC_PATH = Path(__file__).parent.parent / "src"
 if str(SRC_PATH) not in sys.path:

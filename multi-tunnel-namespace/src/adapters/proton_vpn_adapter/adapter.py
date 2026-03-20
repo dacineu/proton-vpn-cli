@@ -115,6 +115,40 @@ class ProtonVPNAdapter(VPNAdapter):
             self._is_multi_tunnel = True
         return self.connector
 
+    async def _find_server(self, config: ProtonConnectionConfig) -> LogicalServer:
+        """
+        Resolve a LogicalServer from the API based on config.
+
+        Args:
+            config: Proton connection configuration
+
+        Returns:
+            LogicalServer instance
+
+        Raises:
+            ConfigurationError: If no server matches criteria
+        """
+        await self._ensure_api()
+        server_list = self.api.get_server_list()
+
+        # Prefer explicit server_id if provided
+        if config.server_id:
+            server = server_list.get_by_id(config.server_id)
+            if server:
+                return server
+            raise ConfigurationError(f"Server ID '{config.server_id}' not found")
+
+        # Fall back to country-based selection
+        if config.country:
+            servers = server_list.filter_by_country(config.country)
+            if servers:
+                # TODO: Could apply additional filters (load, features, etc.)
+                # For now, pick the first available
+                return servers[0]
+            raise ConfigurationError(f"No servers available in country '{config.country}'")
+
+        raise ConfigurationError("Must specify server_id or country in configuration")
+
     @property
     def capabilities(self) -> AdapterCapabilities:
         """Return Proton adapter capabilities."""
@@ -151,14 +185,16 @@ class ProtonVPNAdapter(VPNAdapter):
         await self._ensure_connector()
 
         tunnel_name = config.tunnel_name
-        logger.info(f"Connecting Proton tunnel '{tunnel_name}' to {config.server}")
+        # Resolve the target server from configuration
+        server = await self._find_server(config)
+        logger.info(f"Connecting Proton tunnel '{tunnel_name}' to {server.server_name}")
 
         try:
             # Establish connection via multi-tunnel connector
             # The connector should accept tunnel_name to identify the connection
             connection = await self.connector.connect(
                 tunnel_name=tunnel_name,
-                server=config.server,
+                server=server,
                 protocol=config.protocol,
             )
 
@@ -184,7 +220,7 @@ class ProtonVPNAdapter(VPNAdapter):
                 connected_at=datetime.now(),
                 metadata={
                     "connection_id": connection.id,
-                    "server": config.server,
+                    "server": server,
                     "protocol": config.protocol,
                 },
             )
