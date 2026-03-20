@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_plan: 03-dummy-adapter (Completed)
+current_plan: 05-testing-compatibility (Completed)
 status: unknown
-last_updated: "2026-03-20T17:43:58.958Z"
+last_updated: "2026-03-20T18:29:50Z"
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -21,7 +21,7 @@ See: .planning/PROJECT.md (updated 2025-03-20)
 **Core value:** Transform MTM into a process supervisor with isolated, credential-holding adapter processes for secure multi-tunnel VPN management without disk credential persistence.
 
 **Current focus:** Phase 01 — foundation
-**Current Plan:** 03-dummy-adapter (Completed)
+**Current Plan:** 05-testing-compatibility (Completed)
 
 ---
 
@@ -65,6 +65,7 @@ See: .planning/PROJECT.md (updated 2025-03-20)
 | Phase | Plan | Duration | Tasks | Files | Completed |
 |-------|------|----------|-------|-------|-----------|
 | 01-foundation | 03 | 2 min | 6 | 1 | 2026-03-20 |
+| 01-foundation | 05 | 45min | 7 | 4 | 2026-03-20 |
 
 ---
 | Phase 01-foundation P04 | 3 min | 5 tasks | 1 files |
@@ -82,6 +83,7 @@ See: .planning/PROJECT.md (updated 2025-03-20)
 - [Phase 01-foundation]: Adapter stores session_token from stdin for CLI request validation (not from Register response)
 - [Phase 01-foundation]: Dummy adapter simulates connection delay (0.5-1s) and uses lock to protect concurrent operations
 - [Phase 01-foundation]: None - implemented exactly as plan specifications
+- [Phase 01-foundation]: Added configurable daemon paths for test isolation; implemented legacy CreateTunnel/ConnectTunnel forwarding; created integration test suite with fixtures covering all Phase 1 success criteria
 
 ## Next Action
 
@@ -90,6 +92,6 @@ Continue with Phase 1 plan 04 - Client Library implementation.
 ---
 
 *State initialized: 2025-03-20*
-*Last updated: 2026-03-20 — completed 01-foundation-03-dummy-adapter*
-*Last session: 2026-03-20T17:32:05Z (01-foundation-03)*
-| Phase 01-foundation P03 | 44 | 6 tasks | 1 files |
+*Last updated: 2026-03-20 — completed 01-foundation-05-testing-compatibility*
+*Last session: 2026-03-20T18:29:50Z (01-foundation-05)*
+| Phase 01-foundation P05 | 45min | 7 tasks | 4 files |
