@@ -186,6 +186,8 @@ class ResourceAllocator:
         try:
             await self.routing.destroy_tunnel_context(tunnel_name, {})
             logger.info(f"Released resources for tunnel {tunnel_name} (adapter={adapter.adapter_type})")
+            # Remove from adapter's tunnel set
+            adapter.tunnels.discard(tunnel_name)
             return {"msg_type": "released", "tunnel_name": tunnel_name}
         except Exception as e:
             logger.error(f"Release failed for tunnel {tunnel_name}: {e}")
