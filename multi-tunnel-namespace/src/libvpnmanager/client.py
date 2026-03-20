@@ -180,6 +180,13 @@ class ManagerClient:
         result = await self._call('StartAdapter', params)
         return result['endpoint']
 
+    async def stop_adapter(self, adapter_type: str, username: str) -> bool:
+        """Stop a running adapter instance."""
+        return await self._call('StopAdapter', {
+            'adapter_type': adapter_type,
+            'username': username,
+        })
+
     async def ping(self) -> bool:
         """Health check."""
         return bool(await self._call('Ping', {}))
