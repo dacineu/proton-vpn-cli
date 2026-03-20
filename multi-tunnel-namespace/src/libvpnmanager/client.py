@@ -30,21 +30,25 @@ class ManagerClient:
             await client.disconnect()
     """
 
-    def __init__(self, transport: Optional[str] = None):
+    def __init__(self, transport: Optional[str] = None, socket_path: Optional[str] = None):
         """
         Initialize client.
 
         Args:
             transport: IPC transport type ('unix-socket', 'dbus', 'websocket').
                       If None, read from PROTONVPN_IPC env var or default to 'unix-socket'.
+            socket_path: Override the Unix socket path (only for unix-socket transport).
         """
         self.transport_type = transport or os.getenv('PROTONVPN_IPC', 'unix-socket')
+        self.socket_path = socket_path
         self._client = None
         self.connected = False
 
     async def connect(self) -> None:
         """Connect to the daemon."""
         config = TransportConfig(self.transport_type)
+        if self.socket_path:
+            config.extra['socket_path'] = self.socket_path
         self._client = get_client_transport(self.transport_type, config)
         await self._client.connect()
         self.connected = True

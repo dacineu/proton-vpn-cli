@@ -32,6 +32,8 @@ from libvpnmanager.routing import NetworkNamespaceRouting
 from libvpnmanager.ipc import get_server_transport, TransportConfig, list_transports
 from .adapter_registry import AdapterRegistry
 from .resource_allocator import ResourceAllocator
+from libvpnmanager.client import AdapterClient
+from libvpnmanager.models.config import ConnectionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -74,18 +76,21 @@ ADAPTER_CAPABILITIES = {
 class VPNDaemon:
     """Main daemon class – IPC controller and resource allocator."""
 
-    def __init__(self, enabled_adapters=None, ipc_transport='unix-socket'):
+    def __init__(self, enabled_adapters=None, ipc_transport='unix-socket', *, socket_path=None, adapter_dir=None, internal_socket=None):
         self.session_manager = SessionManager()
         self.routing = NetworkNamespaceRouting()
-        self.adapter_registry = AdapterRegistry()
-        self.resource_allocator = ResourceAllocator(self.routing)
+        # Overrideable paths
+        self.ipc_socket_path = socket_path
+        self._adapter_dir = Path(adapter_dir) if adapter_dir else Path("/run/mtm/adapters")
+        self._internal_socket = internal_socket or "/run/mtm/internal.sock"
+        # Initialize registry and allocator with custom paths
+        self.adapter_registry = AdapterRegistry(adapter_dir=str(self._adapter_dir))
+        self.resource_allocator = ResourceAllocator(self.routing, socket_path=self._internal_socket)
         self.transport = None
         self.running = False
         self._shutdown_event = asyncio.Event()
         self.enabled_adapters = enabled_adapters
         self.ipc_transport = ipc_transport or os.getenv('PROTONVPN_IPC', 'unix-socket')
-        self._adapter_dir = Path("/run/mtm/adapters")
-        self._internal_socket = "/run/mtm/internal.sock"
         # Adapter pool: (adapter_type, vpn_username) -> endpoint
         self.adapter_pool: Dict[Tuple[str, str], str] = {}
         # Session tokens: token -> (expiry, username)
@@ -298,6 +303,56 @@ class VPNDaemon:
 
         return {'endpoint': f'unix://{cli_socket_path}'}
 
+    async def create_tunnel(self, config: Dict[str, Any], username: str) -> Dict[str, Any]:
+        """
+        Create a new tunnel via the adapter (legacy API).
+        Ensures an adapter is running for the given adapter type and forwards the request.
+        """
+        # Parse configuration
+        try:
+            conn_config = ConnectionConfig.from_dict(config)
+        except Exception as e:
+            raise ValueError(f"Invalid configuration: {e}") from e
+
+        adapter_type = conn_config.adapter
+        # Find a running adapter instance for this user and type
+        instance = None
+        async with self.adapter_registry._lock:
+            for (at, session_name), inst in self.adapter_registry.adapters.items():
+                if at == adapter_type and inst.username == username:
+                    instance = inst
+                    break
+        if instance is None:
+            raise AdapterNotFoundError(f"No running adapter for type '{adapter_type}' and user '{username}'")
+
+        endpoint = f"unix://{instance.control_socket}"
+        token = instance.expected_session_token
+        # Wait briefly for token if not yet set (adapter registration may be in progress)
+        if token is None:
+            waited = 0.0
+            while token is None and waited < 5.0:
+                await asyncio.sleep(0.1)
+                waited += 0.1
+                token = instance.expected_session_token
+            if token is None:
+                raise TunnelError("Adapter not ready: session token not received")
+
+        # Forward request to adapter
+        async with AdapterClient(endpoint, session_token=token) as adapter_client:
+            tunnel = await adapter_client.create_tunnel(conn_config.tunnel_name, conn_config)
+        return tunnel.to_dict()
+
+    async def connect_tunnel(self, name: str, username: str) -> bool:
+        """
+        Connect an existing tunnel.
+        Verifies that the tunnel exists in the adapter's managed set.
+        """
+        async with self.adapter_registry._lock:
+            for instance in self.adapter_registry.adapters.values():
+                if instance.username == username and name in instance.tunnels:
+                    return True
+        raise TunnelNotFoundError(f"Tunnel {name} not found for user '{username}'")
+
     async def list_adapters(self, username: Optional[str] = None) -> List[Dict[str, Any]]:
         """List running adapter instances, optionally filtered by username."""
         result = []
@@ -355,6 +410,8 @@ class VPNDaemon:
                 continue
             try:
                 config = TransportConfig(transport_type)
+                if transport_type == 'unix-socket' and self.ipc_socket_path:
+                    config.extra['socket_path'] = self.ipc_socket_path
                 # Use self as the manager for IPC
                 server = get_server_transport(transport_type, self, config)
                 await server.start()
@@ -397,6 +454,10 @@ class VPNDaemon:
         # Stop cleanup task
         await self.adapter_registry.stop_cleanup_task()
         logger.info("MTM daemon stopped")
+
+    def stop(self):
+        """Request daemon shutdown. Can be called from external context."""
+        self._shutdown_event.set()
 
 async def main():
     daemon = VPNDaemon()
