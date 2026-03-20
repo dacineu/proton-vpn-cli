@@ -196,7 +196,15 @@ async def handle_cli(reader: asyncio.StreamReader, writer: asyncio.StreamWriter)
                 logger.warning(f"Invalid JSON from client {addr}: {e}")
                 continue
 
-            # Session token validation will be added in Task 4
+            # Session token validation (Task 4)
+            if expected_session_token is not None:
+                client_token = request.get('session_token')
+                if client_token != expected_session_token:
+                    writer.write(json.dumps({'status': 'error', 'error': 'INVALID_SESSION'}).encode() + b'\n')
+                    await writer.drain()
+                    return
+                # Remove token from request to avoid processing it
+                request.pop('session_token', None)
 
             action = request.get('action')
             if action == 'CreateTunnel':
