@@ -168,6 +168,8 @@ class ResourceAllocator:
             if not namespace:
                 raise NamespaceError("No namespace returned")
             logger.info(f"Allocated namespace {namespace} for tunnel {tunnel_name} (adapter={adapter.adapter_type}, user={username})")
+            # Track tunnel in adapter instance
+            adapter.tunnels.add(tunnel_name)
             return {
                 "msg_type": "allocated",
                 "tunnel_name": tunnel_name,
