@@ -93,6 +93,26 @@ This is a **brownfield rearchitecture** of an existing codebase. The current imp
 
 ---
 
+## Current Milestone: v2.0 — Node.js Rewrite
+
+**Goal:** Rewrite the multi-tunnel VPN manager from Python to Node.js, removing all Python code while preserving the dual-socket adapter architecture and control protocol. The rewrite targets Linux x86_64 and Windows 11 initially, with OS abstraction for portability and binary compilation for distribution.
+
+**Target features:**
+- Node.js daemon (MTM) with same responsibilities: adapter lifecycle, namespace allocation, crash cleanup
+- Adapter base class and dummy adapter in Node.js
+- Client library (ManagerClient, AdapterClient) in Node.js
+- OS-abstracted IPC layer (no D-Bus; use cross-platform local sockets/streams)
+- Process supervision and signal handling for both Linux and Windows
+- Binary packaging for x86_64 Linux and Windows 11 (via pkg/nexe or similar)
+- Integration tests for end-to-end adapter flow
+
+**Out of scope for v2.0:**
+- Full feature parity with all Proton VPN protocol details (dummy adapter demonstrates architecture)
+- Windows network namespace simulation (Linux namespaces remain Linux-only)
+- Migration of existing Python test suite (new tests in Node.js)
+
+---
+
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
@@ -103,6 +123,7 @@ This is a **brownfield rearchitecture** of an existing codebase. The current imp
 | **Legacy API preserved** | Avoid breaking existing users; gradual migration | Old D-Bus create_tunnel route forwards internally to new adapter |
 | **No session recovery** | Simpler model; credentials in memory only; restart fresh | After MTM or adapter restart, users must re-login |
 | **Inherit model profile** | Use current session model for all agents (quality varies) | Reduces cognitive load; consistent with user's workflow |
+| **Node.js rewrite** | Cross-platform potential, single runtime, binary packaging ecosystem | All Python code replaced; new IPC layer; OS abstraction for sockets, processes, signals |
 
 ---
 

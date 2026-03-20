@@ -1,14 +1,14 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: in_progress
-last_updated: "2026-03-20T15:34:19Z"
+milestone: v2.0
+milestone_name: Node.js Rewrite
+status: defining_requirements
+last_updated: "2026-03-20T15:40:00Z"
 progress:
-  total_phases: 4
+  total_phases: 0
   completed_phases: 0
-  total_plans: 6
-  completed_plans: 1
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # Project State
@@ -19,7 +19,7 @@ See: .planning/PROJECT.md (updated 2025-03-20)
 
 **Core value:** Transform MTM into a process supervisor with isolated, credential-holding adapter processes for secure multi-tunnel VPN management without disk credential persistence.
 
-**Current focus:** Phase 01 — foundation
+**Current focus:** v2.0 — Node.js rewrite (defining requirements)
 
 ---
 
@@ -28,9 +28,18 @@ See: .planning/PROJECT.md (updated 2025-03-20)
 | Milestone | Status | Progress | Target |
 |-----------|--------|----------|--------|
 | Project initialization | ✓ Complete | 5/5 artifacts | 2025-03-20 |
-| Requirements definition | ✓ Complete | 29 v1 requirements | 2025-03-20 |
-| Roadmap creation | ✓ Complete | 4 phases | 2025-03-20 |
-| Phase 1 execution | ◐ In Progress | 1/6 plans | TBD |
+| v1.0: Multi-tunnel adapter architecture (Python) | ◒ Partial | 1/4 phases, 1/29 requirements | 2025-03-20 |
+| **v2.0: Node.js rewrite** | ○ Not started | Defining requirements | TBD |
+
+---
+
+## Accumulated Context (carried forward)
+
+- v1.0 Phase 1 partially implemented (daemon extensions complete: Verify2FA, StartAdapter, ListAdapters, StopAdapter, adapter_pool, session_tokens, stdin credentials)
+- Architecture validated via Python prototype: dual Unix sockets, control protocol with length-prefixed JSON, adapter lifecycle
+- Control protocol design: NDJSON for CLI↔Adapter, length-prefixed for Adapter↔MTM; token authentication (dummy tokens in Phase 1, real TOTP later)
+- Adapter base class and dummy adapter exist in Python; will serve as behavioral reference
+- Resource allocator handles namespace allocation; tunnel tracking per adapter; crash cleanup via registry hooks
 
 ---
 
@@ -41,27 +50,20 @@ See: .planning/PROJECT.md (updated 2025-03-20)
 - **Parallelization**: Sequential
 - **Model profile**: Inherit (current session)
 - **Workflow**:
-  - Research: No
+  - Research: Yes (enabled for this milestone)
   - Plan Check: Yes
   - Verifier: Yes
   - Nyquist validation: Yes
-
-## Decisions
-
-- Renamed `list_adapters` to `list_available_adapters` to preserve both available-types and running-instances listings
-- StartAdapter validates adapter_type directly via ADAPTER_CAPABILITIES instead of calling list_adapters
-- Used DummySession for _spawn_adapter's session parameter to avoid session manager coupling
-- StopAdapter dynamically resolves registry session_name by matching control_socket from adapter_pool endpoint
 
 ---
 
 ## Next Action
 
-Run `/gsd:discuss-phase 1` to gather context and clarify approach before planning Phase 1.
+Research phase: spawning 4 parallel researchers to explore Node.js ecosystem choices for daemon IPC, binary packaging, cross-platform process management, and TypeScript adoption.
 
-Alternatively, run `/gsd:plan-phase 1` to skip discussion and create the plan directly.
+After research: define v2.0 requirements and create roadmap.
 
 ---
 
 *State initialized: 2025-03-20*
-*Last updated: 2025-03-20 after initialization*
+*Last updated: 2026-03-20 — starting v2.0*
