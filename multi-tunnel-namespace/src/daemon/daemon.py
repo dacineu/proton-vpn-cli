@@ -100,7 +100,7 @@ class VPNDaemon:
                 return str(candidate)
         return shutil.which(exe_name)
 
-    async def _spawn_adapter(self, adapter_type: str, session_name: str, session: Session, control_socket: str) -> asyncio.subprocess.Process:
+    async def _spawn_adapter(self, adapter_type: str, session_name: str, session: Session, control_socket: str, credentials: Optional[Dict[str, Any]] = None) -> asyncio.subprocess.Process:
         """Spawn an adapter subprocess."""
         exe = self._find_adapter_executable(adapter_type)
         if not exe:
@@ -112,16 +112,26 @@ class VPNDaemon:
             'MTM_CONTROL_SOCKET': control_socket,
             'MTM_ADAPTER_TYPE': adapter_type,
             'MTM_SESSION_NAME': session_name,
-            'MTM_SESSION_DATA': json.dumps(session.to_dict()),
         })
 
         try:
             proc = await asyncio.create_subprocess_exec(
                 exe,
                 env=env,
+                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+            # Deliver credentials via stdin if provided
+            if credentials is not None:
+                startup_payload = {
+                    "session_id": session_name,
+                    "totp_secret": None,
+                    "vpn_credentials": credentials,
+                }
+                proc.stdin.write(json.dumps(startup_payload).encode() + b'\n')
+                await proc.stdin.drain()
+                proc.stdin.close()
             logger.info(f"Spawned adapter {adapter_type} (session={session_name}) PID={proc.pid}")
             # Register with adapter_registry
             self.adapter_registry.register(pid=proc.pid, adapter_type=adapter_type, session_name=session_name,
