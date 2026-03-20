@@ -127,4 +127,14 @@ This is a **brownfield rearchitecture** of an existing codebase. The current imp
 
 ---
 
-*Last updated: 2025-03-20 after initial project bootstrapping*
+*Last updated: 2025-03-20 — Phase 1 (Foundation) complete*
+
+**Phase 1 Completion (2025-03-20):**
+- ✅ Daemon adapter lifecycle (StartAdapter, ListAdapters, StopAdapter, adapter_pool)
+- ✅ Control protocol (Register, AllocateTunnel, ReleaseTunnel, token validation)
+- ✅ Dummy adapter with dual-server and tunnel simulation
+- ✅ Client library (ManagerClient.start_adapter, AdapterClient)
+- ✅ Integration tests validating all success criteria
+- ✅ Legacy D-Bus API compatibility verified
+
+Detailed requirement traceability in `.planning/REQUIREMENTS.md` (13 v1 requirements validated in Phase 1).

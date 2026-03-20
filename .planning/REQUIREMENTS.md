@@ -130,24 +130,24 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DAEM-01 | Phase 1 | Pending |
-| DAEM-02 | Phase 1 | Pending |
-| ADPT-01 | Phase 1 | Pending |
-| ADPT-02 | Phase 1 | Pending |
-| ADPT-03 | Phase 1 | Pending |
-| ADPT-06 | Phase 1 | Pending |
-| CLI-01 | Phase 1 | Pending |
-| CLI-02 | Phase 1 | Pending |
-| TST-04 | Phase 1 | Pending |
-| SEC-01 | Phase 1 | Pending |
-| SEC-02 | Phase 1 | Pending |
-| SEC-03 | Phase 1 | Pending |
-| SEC-04 | Phase 1 | Pending |
-| SEC-05 | Phase 1 | Pending |
-| SEC-06 | Phase 1 | Pending |
-| SEC-07 | Phase 1 | Pending |
-| SEC-08 | Phase 1 | Pending |
-| SEC-09 | Phase 1 | Pending |
+| DAEM-01 | Phase 1 | Validated |
+| DAEM-02 | Phase 1 | Validated |
+| ADPT-01 | Phase 1 | Validated |
+| ADPT-02 | Phase 1 | Validated |
+| ADPT-03 | Phase 1 | Validated |
+| ADPT-06 | Phase 1 | Validated |
+| CLI-01 | Phase 1 | Validated |
+| CLI-02 | Phase 1 | Validated |
+| TST-04 | Phase 1 | Validated |
+| SEC-01 | Phase 4 | Pending |
+| SEC-02 | Phase 4 | Pending |
+| SEC-03 | Phase 4 | Pending |
+| SEC-04 | Phase 1 | Validated |
+| SEC-05 | Phase 1 | Validated |
+| SEC-06 | Phase 1 | Validated |
+| SEC-07 | Phase 1 | Validated |
+| SEC-08 | Phase 4 | Pending |
+| SEC-09 | Phase 4 | Pending |
 | SEC-10 | Phase 1 | Pending |
 | ADPT-04 | Phase 2 | Pending |
 | ADPT-05 | Phase 2 | Pending |
