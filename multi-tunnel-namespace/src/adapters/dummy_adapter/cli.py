@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import random
+import signal
 import struct
 import sys
 import uuid
@@ -334,10 +335,31 @@ async def main() -> None:
 
     logger.info("Dummy adapter ready")
 
-    # Wait for shutdown event (will be set by signal handler in Task 5)
+    # Set up signal handlers for graceful shutdown
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, shutdown_event.set)
+
+    # Wait for shutdown signal
     await shutdown_event.wait()
 
-    # Note: shutdown handling will be added in Task 5
+    # Begin graceful shutdown
+    logger.info("Shutting down adapter")
+    if cli_server:
+        cli_server.close()
+        await cli_server.wait_closed()
+    if control_writer:
+        control_writer.close()
+        try:
+            await control_writer.wait_closed()
+        except Exception:
+            pass
+    # Remove socket file
+    try:
+        Path(cli_socket_path).unlink(missing_ok=True)
+    except Exception:
+        pass
+    logger.info("Adapter stopped")
 
 if __name__ == "__main__":
     logging.basicConfig(
