@@ -5,25 +5,20 @@
 
 pkgname=proton-vpn-manager
 pkgver=0.1.8
-pkgrel=2
+pkgrel=3
 pkgdesc="Proton VPN Tunnel Manager daemon for multi-tunnel VPN with network namespace isolation"
 arch=('any')
 url="https://github.com/ProtonMail/python-protonvpn-cli"
 license=('GPL3')
 depends=(
-    'python'
-    'python-dbus-fast'
-    'python-pydantic'
-    'python-asyncstdlib'
-    'python-pyroute2'
     'iproute2'
     'nsenter'
+    'dbus'
 )
 makedepends=(
-    'python-setuptools'
-    'python-build'
-    'python-installer'
-    'python-wheel'
+    'python'
+    'python-pip'
+    'pyinstaller'
 )
 optdepends=(
     'proton-vpn-cli: Multi-tunnel VPN support (tunnel commands)'
@@ -44,19 +39,131 @@ prepare() {
 }
 
 build() {
-    # Build libvpnmanager wheel from local source
+    # Build standalone proton-vpn-manager binary using PyInstaller
     cd "${srcdir}/../src"
-    pip wheel . --wheel-dir "${srcdir}" --no-deps
+
+    # Clean previous builds
+    rm -rf build/ dist/ *.spec
+
+    # Create PyInstaller spec file
+    cat > proton-vpn-manager.spec << 'PYSPEC'
+# -*- mode: python ; coding: utf-8 -*-
+block_cipher = None
+a = Analysis(
+    ['daemon/daemon.py'],
+    pathex=['.'],
+    binaries=[],
+    datas=[
+        ('libvpnmanager', 'libvpnmanager'),
+        ('adapters/dummy_adapter', 'adapters/dummy_adapter'),
+        ('adapters/proton_vpn_adapter', 'adapters/proton_vpn_adapter'),
+        ('adapters/psiphon_adapter', 'adapters/psiphon_adapter'),
+        ('adapters/wireguard_adapter', 'adapters/wireguard_adapter'),
+    ],
+    hiddenimports=[
+        # Daemon
+        'daemon', 'daemon.daemon',
+        # Core libvpnmanager
+        'libvpnmanager',
+        'libvpnmanager.manager',
+        'libvpnmanager.manager_v2',
+        'libvpnmanager.routing',
+        'libvpnmanager.routing.base',
+        'libvpnmanager.routing.network_namespace',
+        'libvpnmanager.sessions',
+        'libvpnmanager.sessions.base',
+        'libvpnmanager.sessions.dummy',
+        'libvpnmanager.sessions.manager',
+        'libvpnmanager.models',
+        'libvpnmanager.models.tunnel',
+        'libvpnmanager.models.config',
+        'libvpnmanager.models.status',
+        'libvpnmanager.models.exceptions',
+        'libvpnmanager.dbus',
+        'libvpnmanager.dbus.service',
+        'libvpnmanager.dbus.client',
+        'libvpnmanager.adapters',
+        'libvpnmanager.adapters.base',
+        'libvpnmanager.adapters.dummy',
+        # IPC layer
+        'libvpnmanager.ipc',
+        'libvpnmanager.ipc.transport',
+        'libvpnmanager.ipc.unix_socket',
+        'libvpnmanager.ipc.websocket',
+        'libvpnmanager.ipc.dbus',
+        'libvpnmanager.client',
+        # Adapters (with adapters. prefix)
+        'adapters.dummy_adapter',
+        'adapters.dummy_adapter.adapter',
+        'adapters.proton_vpn_adapter',
+        'adapters.proton_vpn_adapter.adapter',
+        'adapters.proton_vpn_adapter.sessions',
+        'adapters.proton_vpn_adapter.sessions.proton',
+        'adapters.psiphon_adapter',
+        'adapters.psiphon_adapter.adapter',
+        'adapters.psiphon_adapter.sessions',
+        'adapters.psiphon_adapter.sessions.psiphon',
+        'adapters.wireguard_adapter',
+        'adapters.wireguard_adapter.adapter',
+        'adapters.wireguard_adapter.sessions',
+        'adapters.wireguard_adapter.sessions.wireguard',
+        # Dependencies
+        'dbus_next',
+        'dbus_next.aio',
+        'dbus_next.service',
+        'dbus_next.constants',
+        'dbus_next.errors',
+        'pydantic',
+        'pydantic.main',
+        'pydantic.validators',
+        'pydantic.fields',
+        'asyncstdlib',
+        'pyroute2',
+        'pyroute2.ndb',
+        'pyroute2.netns',
+        'asyncio',
+        'json',
+        'logging',
+        'signal',
+        'sys',
+        'pathlib',
+        'os',
+    ],
+    hookspath=[], hooksconfig={}, runtime_hooks=[],
+    excludes=[
+        'tkinter', 'matplotlib', 'numpy', 'scipy', 'pandas',
+        'PIL', 'PyQt5', 'PySide2', 'wx',
+        'test', 'unittest', 'pytest',
+        'quart', 'flask', 'django', 'sqlalchemy',
+        'click', 'tabulate',
+    ],
+    win_no_prefer_redirects=False, win_private_assemblies=False,
+    cipher=block_cipher, noarchive=False,
+)
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+exe = EXE(pyz, a.scripts, a.binaries, a.datas, [],
+          name='proton-vpn-manager', debug=False,
+          bootloader_ignore_signals=False, strip=False, upx=True,
+          upx_exclude=[], runtime_tmpdir=None, console=True,
+          disable_windowed_traceback=False, argv_emulation=False,
+          target_arch=None, codesign_identity=None, entitlements_file=None)
+PYSPEC
+
+    # Build the daemon binary
+    pyinstaller proton-vpn-manager.spec
+
+    # The binary will be in src/dist/
+    if [ ! -f "dist/proton-vpn-manager" ]; then
+        echo "ERROR: Failed to build proton-vpn-manager binary"
+        return 1
+    fi
 }
 
 package() {
     cd "${srcdir}"
 
-    # Install Python package from wheel
-    python -m installer --destdir="${pkgdir}" *.whl
-
-    # Install daemon script
-    install -Dm755 "${srcdir}/../src/daemon/daemon.py" \
+    # Install daemon binary (standalone, includes Python interpreter and all deps)
+    install -Dm755 "${srcdir}/../src/dist/proton-vpn-manager" \
         "${pkgdir}/usr/bin/proton-vpn-manager"
 
     # Install systemd service
@@ -73,4 +180,5 @@ package() {
     install -Dm644 "${srcdir}/../../MULTI_TUNNEL_ARCHITECTURE.md" "${docdir}/ARCHITECTURE.md" 2>/dev/null || true
     install -Dm644 "${srcdir}/../README.md" "${docdir}/LIBVPNMANAGER.md" 2>/dev/null || true
     install -Dm644 "${srcdir}/../../IMPLEMENTATION_REPORT.md" "${docdir}/IMPLEMENTATION_REPORT.md" 2>/dev/null || true
+    install -Dm644 "${srcdir}/../TODO_OPTION1.md" "${docdir}/TODO_OPTION1.md" 2>/dev/null || true
 }

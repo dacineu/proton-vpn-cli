@@ -1,0 +1,83 @@
+Perfect! Now I fully understand the security architecture. Let me summarize:
+
+  ---
+  Complete Security Model
+
+  Three Trusted Parties
+
+  1. User -- possesses OTP device (YubiKey, phone, etc.) with TOTP secret
+  2. MTM -- the only component that knows the TOTP secret; it's stored securely (encrypted at rest?)
+  3. CLI -- never stores any secrets; only holds short-lived session tokens in memory
+  4. Adapter -- receives OTP verification capability from MTM at spawn, but doesn't store the TOTP secret long-term? Actually it needs it to verify CLI requests, so it must keep it in memory temporarily.
+
+  Setup Phase (One-Time)
+
+  User runs:
+  protonvpn setup-2fa --scan-qr  # or manual secret entry
+  - MTM generates/registers a TOTP secret for this user
+  - Warns user: "Store this 2FA key securely. It will not be shown again."
+  - MTM stores TOTP secret encrypted (e.g., using system keyring or libsecret)
+  - User adds secret to their OTP device
+
+  Normal Operation Flow
+
+  CLI startup:
+  1. CLI prompts: TOTP Code: ?
+  2. User enters code from OTP device
+  3. CLI sends to MTM via D-Bus: Verify2FA(totp_code)
+  4. MTM checks against stored TOTP secret:
+    - Valid -> issues CLI session token (random, 15min TTL)
+    - Invalid -> reject
+  5. CLI caches session token in memory for TTL
+
+  CLI -> MTM calls:
+  - Every D-Bus call includes cli_session_token in metadata
+  - MTM validates token (exists, not expired)
+  - If valid -> process request
+  - If invalid/expired -> reject with AUTH_EXPIRED, CLI re-prompts for TOTP
+
+  MTM spawns adapter:
+  1. MTM passes to adapter (via stdin or protected control message):
+    - CLI_SESSION_TOKEN (so adapter can verify CLI's global auth)
+    - TOTP_SECRET (so adapter can independently verify TOTP codes if needed) -- or MTM could just send a flag telling adapter "this CLI already authenticated, trust its session token"
+  2. Adapter stores totp_secret in memory (used to verify any CLI's TOTP if needed)
+
+  CLI -> Adapter:
+  - Includes session_token (adapter-specific) and cli_session_token (MTM-issued)
+  - Adapter validates both:
+    - session_token matches its stored token (ensures CLI came from legitimate StartAdapter)
+    - cli_session_token is valid (by checking format or cache of known tokens) -- or adapter could just trust MTM's spawn decision and only check session_token, and MTM already handled CLI 2FA.
+    - Actually, if MTM validated CLI 2FA before spawning adapter, adapter doesn't need to re-verify -- it only needs to ensure the CLI presenting session_token is the same session. But to protect against a rogue CLI process stealing
+  another's session token, adapter could also validate that cli_session_token corresponds to an active session (maybe by asking MTM). Simpler: adapter trusts MTM's spawn decision and only validates session_token.
+
+  Let's simplify: The CLI-level 2FA is enforced by MTM at the StartAdapter gate. Once an adapter is spawned for a user (after MTM verified their TOTP), that adapter trusts that all CLIs connecting to it with the correct session_token
+  are legitimate because only the user who started the adapter can obtain that token (MTM returns it only to authenticated CLI). So adapter just checks session_token.
+
+  MTM -> Adapter control: Already has SO_PEERCRED plus the control protocol. No extra token needed if control socket is only accessible by adapter processes spawned by MTM.
+
+  ---
+  Refined Requirements (v1 Security)
+
+  - SEC-04: CLI-level 2FA mandatory: All CLI operations require a valid time-based TOTP code. CLI prompts user, sends to MTM for verification, receives short-lived cli_session_token (default 15min). Token passed in all D-Bus calls and
+   included in adapter messages.
+  - SEC-05: MTM stores user TOTP secrets securely (encrypted at rest, access limited to MTM process). Never written to logs or exposed to CLI or adapters.
+  - SEC-06: Adapter validates session_token (from MTM) on every CLI request. The session_token is proof that MTM authorized this CLI-adapter pairing. Adapter does not re-verify TOTP (MTM already did).
+  - SEC-07: Session token lifecycle: tokens expire after configurable TTL (default 15min). Expired tokens rejected; CLI must re-authenticate with TOTP to obtain new token.
+  - SEC-08: Setup protection: When registering TOTP secret, MTM warns user to store key securely. Secret never displayed again.
+
+  ---
+  Implementation choices:
+  - Will adapter receive the cli_session_token and validate it itself, or will MTM include some signature in the StartAdapter response that the adapter can use to trust the connection? Simpler: Adapter gets allowed_session_tokens list
+   from MTM at spawn (just the one token for that CLI session) and validates against that. Or: adapter doesn't validate cli_session_token at all; it just validates session_token and assumes MTM did its job. I favor the latter for
+  Phase 1 simplicity.
+
+  Let's decide: Does adapter need to validate cli_session_token or just session_token? Since MTM already checked CLI 2FA before spawning, the adapter can trust that any CLI possessing the session_token is legitimate. The session_token
+   itself is a strong random secret. So adapter only needs to check session_token. That's simpler.
+
+  ---
+  Should I:
+  1. Update Phase 1 CONTEXT.md to include CLI-level 2FA and token flow?
+  2. Add the SEC-04 through SEC-08 requirements?
+  3. Clarify that adapter validates only session_token (not separate CLI token) and MTM handles global 2FA?
+
+  Please confirm and I'll integrate this into the CONTEXT.md.

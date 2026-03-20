@@ -73,3 +73,24 @@ class DummySession(Session):
             status="active",
             metadata=self.metadata,
         )
+
+    @classmethod
+    async def create(
+        cls,
+        session_name: str,
+        username: str,
+        password: str = "",
+        twofa_code: Optional[str] = None,
+        **kwargs
+    ) -> "DummySession":
+        """
+        Create a new dummy session.
+        For dummy, no credentials are needed; just create the session.
+        """
+        # Password is ignored but accepted for compatibility
+        session = cls(
+            session_name=session_name,
+            username=username,
+            metadata={"created_by": username, "dummy": True},
+        )
+        return session

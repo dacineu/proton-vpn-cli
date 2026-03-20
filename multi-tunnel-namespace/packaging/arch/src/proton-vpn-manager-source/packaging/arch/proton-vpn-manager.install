@@ -1,0 +1,63 @@
+# proton-vpn-manager install script
+# This file is sourced by pacman during package installation/upgrade/removal
+
+post_install() {
+    # Reload systemd to pick up new service file
+    systemctl daemon-reload
+
+    # Enable service (starts on boot)
+    systemctl enable proton-vpn-manager.service
+
+    # Optionally start the service now?
+    # Uncomment if you want it to start automatically after install
+    # systemctl start proton-vpn-manager.service
+
+    echo ""
+    echo "=========================================="
+    echo "Proton VPN Manager installed successfully!"
+    echo "=========================================="
+    echo ""
+    echo "To start the daemon now:"
+    echo "  sudo systemctl start proton-vpn-manager"
+    echo ""
+    echo "To view logs:"
+    echo "  sudo journalctl -u proton-vpn-manager -f"
+    echo ""
+    echo "To test with dummy adapter:"
+    echo "  protonvpn tunnel create test --adapter dummy --session test"
+    echo ""
+    echo "Note: The daemon requires network administration capabilities."
+    echo "      If running as non-root, ensure the binary has the necessary"
+    echo "      file capabilities set:"
+    echo "  sudo setcap cap_net_admin,cap_sys_admin+ep /usr/bin/proton-vpn-manager"
+    echo ""
+}
+
+pre_upgrade() {
+    # Stop service before upgrade
+    systemctl stop proton-vpn-manager.service 2>/dev/null || true
+}
+
+post_upgrade() {
+    systemctl daemon-reload
+
+    # Restart service if it was running before upgrade
+    if systemctl is-enabled --quiet proton-vpn-manager.service 2>/dev/null; then
+        systemctl start proton-vpn-manager.service
+    fi
+
+    echo "Proton VPN Manager upgraded successfully."
+}
+
+pre_remove() {
+    # Stop and disable service on removal
+    systemctl stop proton-vpn-manager.service 2>/dev/null || true
+    systemctl disable proton-vpn-manager.service 2>/dev/null || true
+    systemctl daemon-reload
+}
+
+post_remove() {
+    echo "Proton VPN Manager has been removed."
+    echo "Note: Polkit rules at /etc/polkit-1/rules.d/60-protonvpn-manager.rules remain."
+    echo "      Configuration files in /etc/protonvpn/ remain."
+}

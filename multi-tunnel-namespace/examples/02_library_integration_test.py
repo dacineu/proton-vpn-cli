@@ -19,6 +19,7 @@ from libvpnmanager import (
     ConnectionConfig,
     TunnelStatus,
 )
+from libvpnmanager.sessions.dummy import DummySession
 
 
 async def main():
@@ -31,16 +32,29 @@ async def main():
     manager = TunnelManager(routing)
     print("✓ Created TunnelManager with NetworkNamespaceRouting")
 
-    # Register DummyAdapter
-    dummy = DummyAdapter()
-    manager.register_adapter(dummy)
-    print(f"✓ Registered adapter: {dummy.get_adapter_name()}")
+    # Register DummyAdapter class (new registry pattern)
+    manager.register_adapter_type("dummy", DummyAdapter)
+    print("✓ Registered DummyAdapter class")
+
+    # Register DummySession class with the session manager
+    manager.session_manager.register_adapter("dummy", DummySession)
+    print("✓ Registered DummySession class")
+
+    # Create a dummy session for testing
+    # We need to have a session in the manager's session_manager
+    await manager.session_manager.load_session(
+        adapter="dummy",
+        session_name="test_session",
+        username="testuser",
+        password="ignored"  # DummySession.create ignores this
+    )
+    print("✓ Created dummy session (test_session)")
 
     # Create a tunnel using DummyAdapter
-    # Note: DummyAdapter doesn't use config fields, just tunnel_name
     config = ConnectionConfig(
-        adapter="dummy",  # Use the registered dummy adapter
+        adapter="dummy",
         tunnel_name="test_tunnel",
+        session_name="test_session",
     )
     print(f"\nCreating tunnel '{config.tunnel_name}'...")
     tunnel = await manager.create_tunnel(config)
@@ -56,15 +70,15 @@ async def main():
     print(f"    Connected at: {tunnel.connected_at}")
 
     # Check status
-    status = await manager.get_status(tunnel.name)
+    status = await manager.get_status(tunnel.name, username="testuser")
     print(f"  Status: {status.value}")
 
     # Get traffic stats
-    stats = await manager.get_traffic_stats(tunnel.name)
+    stats = await manager.get_traffic_stats(tunnel.name, username="testuser")
     print(f"  Traffic: {stats[0]} in, {stats[1]} out")
 
     # List all tunnels
-    tunnels = await manager.list_tunnels()
+    tunnels = await manager.list_tunnels(username="testuser")
     print(f"\nActive tunnels: {len(tunnels)}")
     for t in tunnels:
         print(f"  - {t.name} ({t.adapter}) on {t.device}")
@@ -73,29 +87,30 @@ async def main():
     config2 = ConnectionConfig(
         adapter="dummy",
         tunnel_name="second_tunnel",
+        session_name="test_session",
     )
     print(f"\nCreating second tunnel '{config2.tunnel_name}'...")
     tunnel2 = await manager.create_tunnel(config2)
-    tunnel2 = await manager.connect_tunnel(tunnel2.name)
+    tunnel2 = await manager.connect_tunnel(tunnel2.name, username="testuser")
     print(f"  ✓ Connected!")
     print(f"    Device: {tunnel2.device}")
     print(f"    Namespace: {tunnel2.namespace}")
 
-    tunnels = await manager.list_tunnels()
+    tunnels = await manager.list_tunnels(username="testuser")
     print(f"\nNow have {len(tunnels)} active tunnels")
 
     # Disconnect first tunnel
     print(f"\nDisconnecting '{tunnel.name}'...")
-    await manager.disconnect_tunnel(tunnel.name)
+    await manager.disconnect_tunnel(tunnel.name, username="testuser")
     print("  ✓ Disconnected")
 
     # Destroy second tunnel
     print(f"\nDestroying '{tunnel2.name}'...")
-    await manager.destroy_tunnel(tunnel2.name)
+    await manager.destroy_tunnel(tunnel2.name, username="testuser")
     print("  ✓ Destroyed")
 
     # Final check
-    tunnels = await manager.list_tunnels()
+    tunnels = await manager.list_tunnels(username="testuser")
     print(f"\nRemaining tunnels: {len(tunnels)}")
 
     # Clean shutdown

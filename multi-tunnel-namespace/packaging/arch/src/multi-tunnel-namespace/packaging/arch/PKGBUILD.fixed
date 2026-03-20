@@ -1,0 +1,80 @@
+# PKGBUILD for proton-vpn-manager (multi-tunnel add-on)
+# Maintainer: Proton VPN Engineering <engineering@protonvpn.com>
+# License: GPL3
+# URL: https://github.com/ProtonMail/python-protonvpn-cli
+
+pkgname=proton-vpn-manager
+pkgver=0.1.8
+pkgrel=1
+pkgdesc="Proton VPN Tunnel Manager daemon for multi-tunnel VPN with network namespace isolation"
+arch=('any')
+url="https://github.com/ProtonMail/python-protonvpn-cli"
+license=('GPL3')
+depends=(
+    'python'
+    'python-dbus-fast'
+    'python-pydantic'
+    'python-asyncstdlib'
+    'python-pyroute2'
+    'iproute2'
+    'nsenter'
+)
+makedepends=(
+    'python-setuptools'
+    'python-build'
+    'python-installer'
+    'python-wheel'
+)
+optdepends=(
+    'proton-vpn-cli: Multi-tunnel VPN support (tunnel commands)'
+)
+backup=(
+    'etc/polkit-1/rules.d/60-protonvpn-manager.rules'
+)
+install="${pkgname}.install"
+
+# No source download - we copy from the current repository
+source=()
+noextract=()
+
+prepare() {
+    local repo_root="/home/dacineu/dev/proton-vpn-cli"
+    mkdir -p "${srcdir}"
+
+    # Copy the entire multi-tunnel-namespace directory
+    cp -r "${repo_root}/multi-tunnel-namespace" "${srcdir}/"
+}
+
+build() {
+    cd "${srcdir}/multi-tunnel-namespace/src/libvpnmanager"
+    python -m build --wheel --skip-dependency-check . --out-dir "${srcdir}"
+}
+
+package() {
+    cd "${srcdir}"
+
+    # Install Python package
+    python -m installer --destdir="${pkgdir}" *.whl
+
+    local src="${srcdir}/multi-tunnel-namespace"
+
+    # Install daemon script
+    install -Dm755 "${src}/src/daemon/daemon.py" \
+        "${pkgdir}/usr/bin/proton-vpn-manager"
+
+    # Install systemd service
+    install -Dm644 "${src}/packaging/systemd/usr/lib/systemd/system/proton-vpn-manager.service" \
+        "${pkgdir}/usr/lib/systemd/system/proton-vpn-manager.service"
+
+    # Install polkit rules
+    install -Dm644 "${src}/packaging/polkit/60-protonvpn-manager.rules" \
+        "${pkgdir}/etc/polkit-1/rules.d/60-protonvpn-manager.rules"
+
+    # Install documentation from repo root (one level up from multi-tunnel-namespace)
+    local docdir="${pkgdir}/usr/share/doc/${pkgname}"
+    local repo_doc_dir="${srcdir}/../"
+    install -Dm644 "${repo_doc_dir}/README.md" "${docdir}/README.md" 2>/dev/null || true
+    install -Dm644 "${repo_doc_dir}/MULTI_TUNNEL_ARCHITECTURE.md" "${docdir}/ARCHITECTURE.md" 2>/dev/null || true
+    install -Dm644 "${src}/README.md" "${docdir}/LIBVPNMANAGER.md" 2>/dev/null || true
+    install -Dm644 "${repo_doc_dir}/IMPLEMENTATION_REPORT.md" "${docdir}/IMPLEMENTATION_REPORT.md" 2>/dev/null || true
+}

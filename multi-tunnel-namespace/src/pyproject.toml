@@ -29,6 +29,7 @@ dependencies = [
     "asyncstdlib>=3.10.0",      # Async versions of stdlib functions
     "pyroute2>=0.7.0",          # Linux network configuration (optional but helpful)
     "systemd-python>=235",      # For systemd integration (if needed)
+    "websockets>=11.0",         # WebSocket transport for cross-platform IPC
 ]
 
 [project.optional-dependencies]
@@ -110,3 +111,16 @@ addopts = [
     "--cov=libvpnmanager",
     "--cov-report=term-missing",
 ]
+
+[project.scripts]
+# Multi-tunnel manager daemon (installed as 'proton-vpn-manager')
+proton-vpn-manager = "daemon.daemon:main"
+
+# User-facing CLI for multi-tunnel commands
+mtm = "cli.main:cli"
+
+# Adapter executables (discovered by the daemon)
+mtm-adapter-proton = "proton_vpn_adapter.cli:main"
+mtm-adapter-psiphon = "psiphon_adapter.cli:main"
+mtm-adapter-wireguard = "wireguard_adapter.cli:main"
+mtm-adapter-dummy = "dummy_adapter.cli:main"

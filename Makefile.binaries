@@ -1,0 +1,71 @@
+# Makefile for building standalone binaries
+.PHONY: all clean install-protonvpn install-libvpnmanager test
+
+all: build
+
+build:
+	@echo "Starting binary build..."
+	@./build-binaries.sh
+
+clean:
+	@echo "Cleaning build artifacts..."
+	rm -rf dist/ build/ *.spec
+	cd multi-tunnel-namespace && rm -rf dist/ build/ *.egg-info
+
+dist-clean: clean
+	@echo "Deep clean (including venv)..."
+	rm -rf .build-venv/
+	rm -rf */__pycache__ */**/__pycache__
+	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.pyc" -delete 2>/dev/null || true
+
+install-protonvpn:
+	@echo "Installing protonvpn binary to /usr/local/bin"
+	sudo cp dist/protonvpn /usr/local/bin/
+	sudo chmod 755 /usr/local/bin/protonvpn
+	@echo "protonvpn installed. Verify with: protonvpn --version"
+
+install-libvpnmanager:
+	@echo "Installing libvpnmanager wheel..."
+	pip install multi-tunnel-namespace/dist/libvpnmanager-*.whl
+	@echo "libvpnmanager installed. Verify with: python -c 'import libvpnmanager'"
+
+test:
+	@echo "Testing protonvpn binary (no libvpnmanager)..."
+	dist/protonvpn --version || true
+	dist/protonvpn --help | head -20 || true
+	@echo "If tunnel commands fail with 'libvpnmanager not available', that's expected."
+	@echo "Install libvpnmanager to enable tunnel features."
+
+test-full: test
+	@echo "Testing with libvpnmanager (if installed)..."
+	-dist/protonvpn tunnel list || true
+
+# Helper to set up build environment
+setup-venv:
+	@echo "Setting up build virtual environment..."
+	python -m venv .build-venv
+	. .build-venv/bin/activate && pip install --upgrade pip
+	@echo "Virtual environment created. Now install dependencies:"
+	@echo "  source .build-venv/bin/activate"
+	@echo "  pip install -e ."
+	@echo "  pip install pyinstaller build"
+
+# Check if all required system dependencies are present
+check-deps:
+	@echo "Checking system dependencies..."
+	@echo ""
+	@echo "Checking for dbus..."
+	@ldconfig -p | grep -q libdbus-1 && echo "  ✓ dbus found" || echo "  ✗ dbus missing (install: dbus)"
+	@echo ""
+	@echo "Checking for systemd..."
+	@ldconfig -p | grep -q libsystemd && echo "  ✓ systemd found" || echo "  ✗ systemd missing (install: systemd)"
+	@echo ""
+	@echo "Checking for wireguard..."
+	@command -v wg >/dev/null 2>&1 && echo "  ✓ wireguard-tools found" || echo "  ✗ wireguard-tools missing (install: wireguard-tools)"
+	@echo ""
+	@echo "Checking Python version..."
+	@python3 --version | grep -q "3\.9\|3\.10\|3\.11\|3\.12\|3\.13\|3\.14" && echo "  ✓ Python 3.9+ found" || echo "  ✗ Python 3.9+ required"
+	@echo ""
+	@echo "Checking PyInstaller..."
+	@python3 -c "import pyinstaller" 2>/dev/null && echo "  ✓ PyInstaller installed" || echo "  ✗ PyInstaller not installed (run: pip install pyinstaller)"

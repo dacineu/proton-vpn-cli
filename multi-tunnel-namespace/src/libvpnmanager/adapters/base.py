@@ -103,7 +103,7 @@ class VPNAdapter(ABC):
         pass
 
     @abstractmethod
-    def list_tunnels(self) -> List[Tunnel]:
+    async def list_tunnels(self) -> List[Tunnel]:
         """
         List all tunnels currently managed by this adapter.
 

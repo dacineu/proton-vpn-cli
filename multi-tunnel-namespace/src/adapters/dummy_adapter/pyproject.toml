@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dummy-adapter"
+version = "0.1.0.dev0"
+description = "Dummy VPN adapter for testing libvpnmanager"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.9"
+authors = [
+    {name = "Proton VPN Team", email = "contact@protonmail.com"}
+]
+keywords = ["vpn", "testing", "dummy", "adapter"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+]
+
+dependencies = [
+    "libvpnmanager>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.0.0",
+    "black>=23.0.0",
+    "ruff>=0.0.290",
+]
+
+[tool.setuptools]
+package-dir = {"" = "."}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["tests*", "docs*"]

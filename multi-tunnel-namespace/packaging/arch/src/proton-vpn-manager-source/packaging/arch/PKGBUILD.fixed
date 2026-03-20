@@ -1,0 +1,87 @@
+# PKGBUILD for proton-vpn-manager (multi-tunnel add-on)
+# Maintainer: Proton VPN Engineering <engineering@protonvpn.com>
+# License: GPL3
+# URL: https://github.com/ProtonMail/python-protonvpn-cli
+
+pkgname=proton-vpn-manager
+pkgver=0.1.8
+pkgrel=1
+pkgdesc="Proton VPN Tunnel Manager daemon for multi-tunnel VPN with network namespace isolation"
+arch=('any')
+url="https://github.com/ProtonMail/python-protonvpn-cli"
+license=('GPL3')
+depends=(
+    'python'
+    'python-dbus-fast'
+    'python-pydantic'
+    'python-asyncstdlib'
+    'python-pyroute2'
+    'iproute2'
+    'nsenter'
+)
+makedepends=(
+    'python-setuptools'
+    'python-build'
+    'python-installer'
+    'python-wheel'
+)
+optdepends=(
+    'proton-vpn-cli: Multi-tunnel VPN support (tunnel commands)'
+)
+backup=(
+    'etc/polkit-1/rules.d/60-protonvpn-manager.rules'
+)
+install="${pkgname}.install"
+
+# No source download - we copy from the current repository
+source=()
+noextract=()
+
+prepare() {
+    # The repository root is two levels up from packaging/arch
+    local repo_root="/home/dacineu/dev/proton-vpn-cli"
+    local src_dir="${srcdir}/proton-vpn-manager-source"
+
+    mkdir -p "${src_dir}"
+
+    # Copy necessary source files
+    cp -r "${repo_root}/multi-tunnel-namespace/src" "${src_dir}/"
+    cp -r "${repo_root}/multi-tunnel-namespace/packaging" "${src_dir}/"
+    # Copy documentation from repo root
+    for doc in README.md MULTI_TUNNEL_ARCHITECTURE.md IMPLEMENTATION_REPORT.md TODO_OPTION1.md; do
+        [ -f "${repo_root}/${doc}" ] && cp "${repo_root}/${doc}" "${src_dir}/" || true
+    done
+}
+
+build() {
+    cd "${srcdir}/proton-vpn-manager-source/src/libvpnmanager"
+    python -m build --wheel --skip-dependency-check . --out-dir "${srcdir}"
+}
+
+package() {
+    cd "${srcdir}"
+
+    # Install Python package
+    python -m installer --destdir="${pkgdir}" *.whl
+
+    local src="${srcdir}/proton-vpn-manager-source"
+
+    # Install daemon script
+    install -Dm755 "${src}/src/daemon/daemon.py" \
+        "${pkgdir}/usr/bin/proton-vpn-manager"
+
+    # Install systemd service
+    install -Dm644 "${src}/packaging/systemd/usr/lib/systemd/system/proton-vpn-manager.service" \
+        "${pkgdir}/usr/lib/systemd/system/proton-vpn-manager.service"
+
+    # Install polkit rules
+    install -Dm644 "${src}/packaging/polkit/60-protonvpn-manager.rules" \
+        "${pkgdir}/etc/polkit-1/rules.d/60-protonvpn-manager.rules"
+
+    # Install documentation
+    local docdir="${pkgdir}/usr/share/doc/${pkgname}"
+    install -Dm644 "${src}/README.md" "${docdir}/README.md" 2>/dev/null || true
+    install -Dm644 "${src}/MULTI_TUNNEL_ARCHITECTURE.md" "${docdir}/ARCHITECTURE.md" 2>/dev/null || true
+    install -Dm644 "${src}/src/README.md" "${docdir}/LIBVPNMANAGER.md" 2>/dev/null || true
+    install -Dm644 "${src}/IMPLEMENTATION_REPORT.md" "${docdir}/IMPLEMENTATION_REPORT.md" 2>/dev/null || true
+}

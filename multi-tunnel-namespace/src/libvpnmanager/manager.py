@@ -8,6 +8,7 @@ This version extends the original TunnelManager to support:
 """
 
 import asyncio
+import logging
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -25,6 +26,8 @@ from .models.exceptions import (
 from .adapters.base import VPNAdapter, AdapterCapabilities
 from .routing.base import RoutingStrategy
 from .sessions import SessionManager, Session
+
+logger = logging.getLogger(__name__)
 
 
 class TunnelManager:
@@ -61,6 +64,8 @@ class TunnelManager:
         self.session_manager = session_manager or SessionManager()
         # (adapter_type, session_name) -> VPNAdapter instance
         self._adapters: Dict[Tuple[str, str], VPNAdapter] = {}
+        # adapter_type -> VPNAdapter class
+        self._adapter_types: Dict[str, type] = {}
         # tunnel_name -> Tunnel
         self.tunnels: Dict[str, Tunnel] = {}
         self._lock = asyncio.Lock()
@@ -75,6 +80,18 @@ class TunnelManager:
             return any(g in admin_groups for g in user_groups)
         except Exception:
             return False
+
+    def register_adapter_type(self, adapter_type: str, adapter_class: type) -> None:
+        """
+        Register an adapter type with the manager.
+
+        Args:
+            adapter_type: String identifier (e.g., "proton", "wireguard")
+            adapter_class: VPNAdapter subclass
+        """
+        if not issubclass(adapter_class, VPNAdapter):
+            raise ValueError(f"{adapter_class} must be a subclass of VPNAdapter")
+        self._adapter_types[adapter_type] = adapter_class
 
     async def _get_adapter_for_tunnel(
         self,
@@ -100,22 +117,12 @@ class TunnelManager:
                 adapter_type, session_name, username
             )
 
-            # Create adapter for this session
-            if adapter_type == "proton":
-                from .adapters.proton import ProtonVPNAdapter
-                adapter = ProtonVPNAdapter(session)
-            elif adapter_type == "psiphon":
-                from .adapters.psiphon import PsiphonAdapter
-                adapter = PsiphonAdapter(session)
-            elif adapter_type == "wireguard":
-                from .adapters.wireguard import WireGuardAdapter
-                adapter = WireGuardAdapter(session)
-            elif adapter_type == "dummy":
-                from .adapters.dummy import DummyAdapter
-                adapter = DummyAdapter()
-            else:
-                raise AdapterNotFoundError(f"Adapter '{adapter_type}' not supported")
+            # Get adapter class from registry
+            if adapter_type not in self._adapter_types:
+                raise AdapterNotFoundError(f"Adapter '{adapter_type}' not registered")
 
+            adapter_class = self._adapter_types[adapter_type]
+            adapter = adapter_class(session)
             self._adapters[key] = adapter
         return self._adapters[key]
 
@@ -307,6 +314,21 @@ class TunnelManager:
             # Remove from registry
             del self.tunnels[tunnel_name]
 
+            # Check if adapter (for this session) is still needed
+            adapter_key = (tunnel.adapter, tunnel.session_name)
+            if adapter_key in self._adapters:
+                remaining = [t for t in self.tunnels.values() if (t.adapter, t.session_name) == adapter_key]
+                if not remaining:
+                    # No more tunnels using this adapter; clean it up
+                    adapter = self._adapters[adapter_key]
+                    try:
+                        await adapter.cleanup()
+                        logger.info(f"Cleaned up idle adapter {adapter_key}")
+                    except Exception as e:
+                        logger.warning(f"Error cleaning up adapter {adapter_key}: {e}")
+                    finally:
+                        del self._adapters[adapter_key]
+
     async def list_tunnels(
         self,
         username: Optional[str] = None,
@@ -404,7 +426,7 @@ class TunnelManager:
 
     async def list_adapters(self) -> List[str]:
         """List supported adapter types."""
-        return list(self.session_manager.SESSION_TYPES.keys())
+        return list(self._adapter_types.keys())
 
     async def get_adapter_capabilities(self, adapter: str) -> AdapterCapabilities:
         """

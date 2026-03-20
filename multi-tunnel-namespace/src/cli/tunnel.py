@@ -29,7 +29,7 @@ import subprocess
 import getpass
 
 try:
-    from libvpnmanager.client import VPNManagerClient
+    from libvpnmanager.client import ManagerClient, AdapterClient
     from libvpnmanager.models.config import (
         ProtonConnectionConfig,
         PsiphonConnectionConfig,
@@ -39,9 +39,75 @@ try:
     HAS_LIBVPNMANAGER = True
 except ImportError:
     HAS_LIBVPNMANAGER = False
+    AdapterClient = None  # type: ignore
 
 
 def get_current_username() -> str:
+    """Get the current OS username."""
+    return os.getenv("USER", os.getenv("LOGNAME", "root"))
+
+
+async def ensure_adapter_running(
+    adapter_type: str,
+    credentials: Optional[Dict[str, Any]],
+    totp_code: Optional[str] = None
+) -> str:
+    """
+    Ensure an adapter is running and return its CLI endpoint.
+
+    If credentials is provided, start the adapter (or reuse if already running).
+    If credentials is None, assume adapter already running and return its endpoint.
+    """
+    client = ManagerClient()
+    try:
+        await client.connect()
+        if credentials is not None:
+            # Need to start adapter with credentials
+            if totp_code:
+                result = await client.verify_2fa(totp_code)
+                session_token = result.get('session_token')
+                if not session_token:
+                    raise TunnelError("Failed to obtain session token from 2FA verification")
+            else:
+                session_token = None
+            endpoint = await client.start_adapter(adapter_type, credentials, session_token=session_token)
+            return endpoint
+        else:
+            # Reuse existing adapter - find endpoint via list_adapters
+            username = get_current_username()
+            adapters = await client.list_adapters()
+            for a in adapters:
+                if a.get('type') == adapter_type and a.get('username') == username:
+                    return a['endpoint']
+            raise TunnelError(f"No running {adapter_type} adapter found for {username}")
+    finally:
+        await client.disconnect()
+
+
+async def prompt_credentials_if_needed(adapter_type: str) -> Optional[Dict[str, Any]]:
+    """
+    Check if an adapter for the current user is already running.
+    If not, prompt for credentials and return them.
+    """
+    client = ManagerClient()
+    try:
+        await client.connect()
+        username = get_current_username()
+        adapters = await client.list_adapters()
+        # Check if any running adapter matches this type and username
+        key = f"{adapter_type}/{username}"
+        for adapter_info in adapters:
+            if adapter_info.get('type') == adapter_type and adapter_info.get('username') == username:
+                # Adapter already running; no credentials needed
+                return None
+        # Need credentials
+        click.echo(f"No {adapter_type} adapter running for {username}. Starting it...")
+        password = click.prompt("Password", hide_input=True)
+        return {"username": username, "password": password}
+    finally:
+        await client.disconnect()
+
+
     """Get the current OS username."""
     return os.getenv("USER", os.getenv("LOGNAME", "root"))
 
@@ -70,11 +136,8 @@ def tunnel_group():
               help="WireGuard config file path (for wireguard adapter)")
 async def create(name, adapter_type, session_name, country, exit_country, protocol, city, config_file):
     """Create and connect a new tunnel."""
-    client = VPNManagerClient()
+    client = ManagerClient()
     try:
-        await client.connect()
-        username = get_current_username()
-
         # Build config based on adapter
         if adapter_type == "proton":
             if not country:
@@ -111,8 +174,17 @@ async def create(name, adapter_type, session_name, country, exit_country, protoc
             click.echo(f"Error: Unknown adapter '{adapter_type}'", err=True)
             sys.exit(1)
 
-        click.echo(f"Creating tunnel '{name}' (adapter={adapter_type}, session={session_name})...")
-        tunnel = await client.create_tunnel(config, username)
+        # New adapter flow: ensure adapter running, then use AdapterClient
+        creds = await prompt_credentials_if_needed(adapter_type)
+        endpoint = await ensure_adapter_running(adapter_type, creds)
+
+        adapter_client = AdapterClient(endpoint)
+        await adapter_client.connect()
+        try:
+            click.echo(f"Creating tunnel '{name}' (adapter={adapter_type}, session={session_name})...")
+            tunnel = await adapter_client.create_tunnel(name=name, config=config)
+        finally:
+            await adapter_client.disconnect()
 
         click.echo(f"✓ Tunnel '{tunnel.name}' created and connected")
         click.echo(f"  Adapter: {tunnel.adapter}")
@@ -127,8 +199,6 @@ async def create(name, adapter_type, session_name, country, exit_country, protoc
     except (TunnelError, SessionError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
-    finally:
-        await client.disconnect()
 
 
 @tunnel_group.command(name="list")
@@ -136,7 +206,7 @@ async def create(name, adapter_type, session_name, country, exit_country, protoc
 @click.option("--username", help="Filter by username (for admins)")
 async def list_tunnels(all_users, username):
     """List tunnels."""
-    client = VPNManagerClient()
+    client = ManagerClient()
     try:
         await client.connect()
         current_user = get_current_username()
@@ -178,7 +248,7 @@ async def list_tunnels(all_users, username):
 @click.option("--all-users", is_flag=True, help="List all users' sessions (admin only)")
 async def sessions(adapter, all_users):
     """List available VPN sessions."""
-    client = VPNManagerClient()
+    client = ManagerClient()
     try:
         await client.connect()
         current_user = get_current_username()
@@ -222,7 +292,7 @@ async def sessions(adapter, all_users):
 @click.option("--username", help="Username (for admin actions)")
 async def disconnect(name, username):
     """Disconnect a tunnel."""
-    client = VPNManagerClient()
+    client = ManagerClient()
     try:
         await client.connect()
         current_user = get_current_username()
@@ -242,7 +312,7 @@ async def disconnect(name, username):
 @click.option("--username", help="Username (for admin actions)")
 async def destroy(name, username):
     """Completely destroy a tunnel."""
-    client = VPNManagerClient()
+    client = ManagerClient()
     try:
         await client.connect()
         current_user = get_current_username()
@@ -269,7 +339,7 @@ async def switch(name):
 
     Example: protonvpn tunnel switch work
     """
-    client = VPNManagerClient()
+    client = ManagerClient()
     try:
         await client.connect()
         current_user = get_current_username()
@@ -310,7 +380,7 @@ async def exec_(name, command):
 
     Example: protonvpn tunnel exec work -- firefox
     """
-    client = VPNManagerClient()
+    client = ManagerClient()
     try:
         await client.connect()
         current_user = get_current_username()
@@ -338,7 +408,7 @@ async def exec_(name, command):
 @click.argument("name")
 async def info(name):
     """Show detailed information about a tunnel."""
-    client = VPNManagerClient()
+    client = ManagerClient()
     try:
         await client.connect()
         current_user = get_current_username()
@@ -374,7 +444,7 @@ async def info(name):
 @click.option("--twofa", help="2FA code (if required)")
 async def login(adapter_type, session_name, vpn_username, password, twofa):
     """Login to VPN service and create a session."""
-    client = VPNManagerClient()
+    client = ManagerClient()
     try:
         await client.connect()
         current_user = get_current_username()
@@ -416,7 +486,7 @@ async def login(adapter_type, session_name, vpn_username, password, twofa):
 @click.option("--username", help="Username (for admin)")
 async def logout(adapter_type, session_name, username):
     """Logout and remove a session."""
-    client = VPNManagerClient()
+    client = ManagerClient()
     try:
         await client.connect()
         current_user = get_current_username()

@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proton-vpn-adapter"
+version = "0.1.0.dev0"
+description = "Proton VPN adapter for libvpnmanager"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.9"
+authors = [
+    {name = "Proton VPN Team", email = "contact@protonmail.com"}
+]
+keywords = ["vpn", "proton", "adapter"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Networking",
+]
+
+# This adapter requires libvpnmanager and proton's internal packages
+dependencies = [
+    "libvpnmanager>=0.1.0",
+    # Proton internal packages - must be available via private PyPI
+    "proton-core>=0.1.0",
+    "proton-vpn-api-core>=0.1.0",
+    "proton-keyring-linux>=0.1.0",
+    "proton-vpn-local-agent>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.0.0",
+    "black>=23.0.0",
+    "ruff>=0.0.290",
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "."}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["tests*", "docs*"]
+
+[tool.black]
+line-length = 88
+
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+select = ["E", "W", "F", "I", "B", "C4", "UP"]
+
+[tool.mypy]
+python_version = "3.9"
+disallow_untyped_defs = true
+check_untyped_defs = true
