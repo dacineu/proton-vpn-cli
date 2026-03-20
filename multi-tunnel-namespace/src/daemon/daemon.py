@@ -100,7 +100,7 @@ class VPNDaemon:
                 return str(candidate)
         return shutil.which(exe_name)
 
-    async def _spawn_adapter(self, adapter_type: str, session_name: str, session: Session, control_socket: str, credentials: Optional[Dict[str, Any]] = None) -> asyncio.subprocess.Process:
+    async def _spawn_adapter(self, adapter_type: str, session_name: str, session: Session, control_socket: str, credentials: Optional[Dict[str, Any]] = None, session_token: Optional[str] = None) -> asyncio.subprocess.Process:
         """Spawn an adapter subprocess."""
         exe = self._find_adapter_executable(adapter_type)
         if not exe:
@@ -128,6 +128,7 @@ class VPNDaemon:
                     "session_id": session_name,
                     "totp_secret": None,
                     "vpn_credentials": credentials,
+                    "session_token": session_token,
                 }
                 proc.stdin.write(json.dumps(startup_payload).encode() + b'\n')
                 await proc.stdin.drain()
@@ -267,7 +268,7 @@ class VPNDaemon:
 
         # Spawn adapter with credentials via stdin
         # Use the session_id as the session_name for registry tracking
-        proc = await self._spawn_adapter(adapter_type, session_id, DummySession(adapter=adapter_type, session_name=session_id, username=vpn_username, metadata={}), cli_socket_path, credentials)
+        proc = await self._spawn_adapter(adapter_type, session_id, DummySession(adapter=adapter_type, session_name=session_id, username=vpn_username, metadata={}), cli_socket_path, credentials, session_token)
 
         # Wait for socket to become available (up to 10 seconds)
         timeout = 10.0
