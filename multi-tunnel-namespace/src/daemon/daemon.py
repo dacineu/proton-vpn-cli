@@ -309,6 +309,32 @@ class VPNDaemon:
                 })
         return result
 
+    async def stop_adapter(self, adapter_type: str, username: Optional[str] = None) -> bool:
+        """Stop a running adapter instance."""
+        if username is None:
+            raise ValueError("username required")
+        key = (adapter_type, username)
+        if key not in self.adapter_pool:
+            return False
+        # Retrieve the endpoint URI and derive the raw socket path
+        endpoint_uri = self.adapter_pool[key]
+        raw_socket_path = endpoint_uri[7:] if endpoint_uri.startswith('unix://') else endpoint_uri
+        # Find the matching adapter registry entry by control_socket
+        session_name = None
+        for (at, sn), instance in self.adapter_registry.adapters.items():
+            if at == adapter_type and instance.control_socket == raw_socket_path:
+                session_name = sn
+                break
+        if session_name is None:
+            # Adapter not found in registry (already exited?), remove from pool and return failure
+            del self.adapter_pool[key]
+            return False
+        # Remove from pool first
+        del self.adapter_pool[key]
+        # Terminate via registry
+        success = await self.adapter_registry.terminate_adapter(adapter_type, session_name)
+        return success
+
     async def start(self):
         """Start the daemon."""
         logger.info("Starting MTM daemon...")
@@ -316,6 +342,8 @@ class VPNDaemon:
         # Start internal resource allocator
         await self.resource_allocator.start()
         self.resource_allocator.set_adapter_registry(self.adapter_registry)
+        # Bidirectional link for crash cleanup
+        self.adapter_registry.set_resource_allocator(self.resource_allocator)
 
         # Start IPC transports
         transports = self.ipc_transport.split(',') if isinstance(self.ipc_transport, str) else self.ipc_transport
