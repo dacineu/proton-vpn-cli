@@ -120,21 +120,64 @@ async def create_tunnel(request: Dict[str, Any], writer: asyncio.StreamWriter) -
         await writer.drain()
 
 async def destroy_tunnel(request: Dict[str, Any], writer: asyncio.StreamWriter) -> None:
-    # Stub for Task 1; will be implemented in Task 3
-    response = {'status': 'error', 'error': 'Not implemented'}
-    writer.write(json.dumps(response).encode() + b'\n')
-    await writer.drain()
+    """Handle DestroyTunnel: release resources via MTM and remove tunnel."""
+    global tunnels, lock, control_writer, control_reader
+
+    tunnel_name = request.get('tunnel_name')
+    if not tunnel_name:
+        writer.write(json.dumps({'status': 'error', 'error': 'Missing tunnel_name'}).encode() + b'\n')
+        await writer.drain()
+        return
+
+    async with lock:
+        if tunnel_name not in tunnels:
+            writer.write(json.dumps({'status': 'error', 'error': 'Tunnel not found'}).encode() + b'\n')
+            await writer.drain()
+            return
+
+        # Send ReleaseTunnel control message
+        release_req = {'msg_type': 'release', 'tunnel_name': tunnel_name}
+        try:
+            await send_control(control_writer, release_req)
+            resp = await read_control(control_reader)
+        except Exception as e:
+            logger.error(f"Control communication error during release: {e}")
+            writer.write(json.dumps({'status': 'error', 'error': 'Release failed'}).encode() + b'\n')
+            await writer.drain()
+            return
+
+        if resp.get('msg_type') != 'released':
+            err = resp.get('error', 'Release failed')
+            logger.error(f"Release failed: {err}")
+            writer.write(json.dumps({'status': 'error', 'error': err}).encode() + b'\n')
+            await writer.drain()
+            return
+
+        # On successful release, remove tunnel
+        del tunnels[tunnel_name]
+        writer.write(json.dumps({'status': 'success'}).encode() + b'\n')
+        await writer.drain()
 
 async def list_tunnels(request: Dict[str, Any], writer: asyncio.StreamWriter) -> None:
-    # Stub for Task 1; will be implemented in Task 3
-    response = {'tunnels': []}
-    writer.write(json.dumps(response).encode() + b'\n')
+    """Handle ListTunnels: return list of all tunnels."""
+    global tunnels, lock
+    async with lock:
+        tunnel_list = [t.to_dict() for t in tunnels.values()]
+    writer.write(json.dumps({'tunnels': tunnel_list}).encode() + b'\n')
     await writer.drain()
 
 async def get_status(request: Dict[str, Any], writer: asyncio.StreamWriter) -> None:
-    # Stub for Task 1; will be implemented in Task 3
-    response = {'status': 'disconnected'}
-    writer.write(json.dumps(response).encode() + b'\n')
+    """Handle GetStatus: return connection status for a tunnel."""
+    global tunnels, lock
+    tunnel_name = request.get('tunnel_name')
+    if not tunnel_name:
+        writer.write(json.dumps({'status': 'error', 'error': 'Missing tunnel_name'}).encode() + b'\n')
+        await writer.drain()
+        return
+
+    async with lock:
+        status_str = 'connected' if tunnel_name in tunnels else 'disconnected'
+    writer.write(json.dumps({'status': status_str}).encode() + b'\n')
     await writer.drain()
 
 async def handle_cli(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
