@@ -208,6 +208,15 @@ class ProtonVPNAdapter(VPNAdapter):
             if not device:
                 raise ConnectionError("Connected but no TUN device found")
 
+            # Extract network configuration from connection
+            # These methods are expected on the multi-tunnel connector's connection object.
+            try:
+                gateway = connection.get_gateway_ip()
+                dns_servers = connection.get_dns_servers()
+                vpn_ip = connection.get_assigned_ip()
+            except AttributeError as e:
+                raise ConnectionError(f"Connection object missing required network config method: {e}")
+
             # Build Tunnel object
             tunnel = Tunnel(
                 name=tunnel_name,
@@ -218,6 +227,9 @@ class ProtonVPNAdapter(VPNAdapter):
                 namespace=None,  # Will be set by routing layer
                 endpoint=connection.get_endpoint(),
                 connected_at=datetime.now(),
+                gateway=gateway,
+                dns_servers=dns_servers,
+                vpn_ip=vpn_ip,
                 metadata={
                     "connection_id": connection.id,
                     "server": server,
@@ -258,11 +270,6 @@ class ProtonVPNAdapter(VPNAdapter):
         if not tunnel:
             raise TunnelNotFoundError(f"Tunnel {name} not found")
         await self.disconnect(tunnel)
-
-            logger.error(f"Failed to connect Proton tunnel '{tunnel_name}': {e}")
-            if isinstance(e, (AuthenticationError, ConnectionError, ConfigurationError)):
-                raise
-            raise ConnectionError(f"Proton connection failed: {e}") from e
 
     async def disconnect(self, tunnel: Tunnel) -> None:
         """

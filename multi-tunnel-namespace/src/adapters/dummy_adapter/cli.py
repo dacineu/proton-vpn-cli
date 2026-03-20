@@ -68,15 +68,28 @@ async def create_tunnel(request: Dict[str, Any], writer: asyncio.StreamWriter) -
         # Simulate connection delay
         await asyncio.sleep(random.uniform(0.5, 1.0))
 
-        counter += 1
-        device = f"dummy{counter}"
+        # Determine device name: use TEST_DUMMY_DEVICE if set (for testing), else generate sequential
+        test_device = os.getenv('TEST_DUMMY_DEVICE')
+        if test_device:
+            device = test_device
+        else:
+            counter += 1
+            device = f"dummy{counter}"
 
-        # Prepare AllocateTunnel control message
+        # Prepare AllocateTunnel control message with network configuration
         config = request.get('config', {})
+        # Dummy network configuration values
+        gateway = "10.8.0.1"
+        dns_servers = ["1.1.1.1", "1.0.0.1"]
+        vpn_ip = "10.8.0.2"
+
         allocate_req = {
             'msg_type': 'allocate',
             'tunnel_name': tunnel_name,
-            'config': config,
+            'device': device,
+            'gateway': gateway,
+            'dns': dns_servers,
+            'vpn_ip': vpn_ip,
             'username': adapter_username
         }
         try:
@@ -102,6 +115,11 @@ async def create_tunnel(request: Dict[str, Any], writer: asyncio.StreamWriter) -
             await writer.drain()
             return
 
+        # Use gateway, dns, vpn_ip from response (or from our request if not echoed)
+        gateway = resp.get('gateway', gateway)
+        dns_servers_resp = resp.get('dns', dns_servers)
+        vpn_ip_resp = resp.get('vpn_ip', vpn_ip)
+
         # Create Tunnel object
         tunnel = Tunnel(
             name=tunnel_name,
@@ -110,6 +128,9 @@ async def create_tunnel(request: Dict[str, Any], writer: asyncio.StreamWriter) -
             namespace=namespace,
             endpoint='dummy.example.com',
             connected_at=datetime.utcnow(),
+            gateway=gateway,
+            dns_servers=dns_servers_resp,
+            vpn_ip=vpn_ip_resp,
             metadata={'simulated': True},
             session_name=adapter_session_id,
             username=adapter_username

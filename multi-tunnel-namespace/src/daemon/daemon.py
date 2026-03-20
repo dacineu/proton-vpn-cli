@@ -76,7 +76,7 @@ ADAPTER_CAPABILITIES = {
 class VPNDaemon:
     """Main daemon class – IPC controller and resource allocator."""
 
-    def __init__(self, enabled_adapters=None, ipc_transport='unix-socket', *, socket_path=None, adapter_dir=None, internal_socket=None):
+    def __init__(self, enabled_adapters=None, ipc_transport='unix-socket', *, socket_path=None, adapter_dir=None, internal_socket=None, idle_timeout=300.0):
         self.session_manager = SessionManager()
         self.routing = NetworkNamespaceRouting()
         # Overrideable paths
@@ -84,7 +84,7 @@ class VPNDaemon:
         self._adapter_dir = Path(adapter_dir) if adapter_dir else Path("/run/mtm/adapters")
         self._internal_socket = internal_socket or "/run/mtm/internal.sock"
         # Initialize registry and allocator with custom paths
-        self.adapter_registry = AdapterRegistry(adapter_dir=str(self._adapter_dir))
+        self.adapter_registry = AdapterRegistry(adapter_dir=str(self._adapter_dir), idle_timeout=idle_timeout)
         self.resource_allocator = ResourceAllocator(self.routing, socket_path=self._internal_socket)
         self.transport = None
         self.running = False

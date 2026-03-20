@@ -31,18 +31,19 @@ class AdapterInstance:
 class AdapterRegistry:
     """Global registry of adapter instances managed by the daemon."""
 
-    def __init__(self, adapter_dir: str = "/run/mtm/adapters"):
+    def __init__(self, adapter_dir: str = "/run/mtm/adapters", idle_timeout: float = 300.0):
         """
         Initialize registry.
 
         Args:
             adapter_dir: Directory where adapter control sockets are placed.
+            idle_timeout: Seconds of inactivity before terminating an adapter.
         """
         self.adapter_dir = Path(adapter_dir)
         self.adapters: Dict[tuple[str, str], AdapterInstance] = {}  # key = (adapter_type, session_name)
         self._by_pid: Dict[int, AdapterInstance] = {}
         self._lock = asyncio.Lock()
-        self._idle_timeout = 300.0  # seconds of inactivity before terminating adapter
+        self._idle_timeout = float(idle_timeout)
         self._cleanup_task: Optional[asyncio.Task] = None
         self._resource_allocator = None  # type: Optional[ResourceAllocator]
 
@@ -52,6 +53,11 @@ class AdapterRegistry:
     def set_resource_allocator(self, allocator):
         """Set the resource allocator for crash cleanup."""
         self._resource_allocator = allocator
+
+    def set_idle_timeout(self, seconds: float) -> None:
+        """Update the idle timeout (seconds)."""
+        self._idle_timeout = float(seconds)
+        logger.info(f"Adapter idle timeout set to {self._idle_timeout} seconds")
 
     async def start_cleanup_task(self):
         """Start background task that cleans up idle adapters."""
@@ -73,18 +79,22 @@ class AdapterRegistry:
         while True:
             try:
                 await asyncio.sleep(60.0)
-                now = asyncio.get_event_loop().time()
-                idle_keys = []
-                async with self._lock:
-                    for key, adapter in self.adapters.items():
-                        if now - adapter.last_used > self._idle_timeout:
-                            idle_keys.append(key)
-                for key in idle_keys:
-                    await self.terminate_adapter(key[0], key[1])
+                await self._check_idle_adapters()
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Error in adapter cleanup: {e}")
+
+    async def _check_idle_adapters(self):
+        """Check for idle adapters and terminate them."""
+        now = asyncio.get_event_loop().time()
+        idle_keys = []
+        async with self._lock:
+            for key, adapter in self.adapters.items():
+                if now - adapter.last_used > self._idle_timeout:
+                    idle_keys.append(key)
+        for key in idle_keys:
+            await self.terminate_adapter(key[0], key[1])
 
     def register(self, pid: int, adapter_type: str, session_name: str, process: asyncio.subprocess.Process, control_socket: str):
         """Register a new adapter instance (called by daemon after spawn)."""

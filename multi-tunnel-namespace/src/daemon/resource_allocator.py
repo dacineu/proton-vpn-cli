@@ -158,15 +158,68 @@ class ResourceAllocator:
 
     async def _handle_allocate(self, request: Dict[str, Any], adapter) -> Dict[str, Any]:
         tunnel_name = request.get("tunnel_name")
-        config = request.get("config", {})
         username = request.get("username", "")
+        # New required fields
+        device = request.get("device")
+        gateway = request.get("gateway")
+        dns = request.get("dns")
+        vpn_ip = request.get("vpn_ip")
+
+        # Validate presence
         if not tunnel_name:
             return {"msg_type": "error", "error": "Missing tunnel_name"}
+        if not device:
+            return {"msg_type": "error", "error": "Missing device"}
+        if not gateway:
+            return {"msg_type": "error", "error": "Missing gateway"}
+        if dns is None:  # allow empty list but not missing
+            return {"msg_type": "error", "error": "Missing dns"}
+        if not vpn_ip:
+            return {"msg_type": "error", "error": "Missing vpn_ip"}
+
+        # Basic format validation
+        if not isinstance(device, str) or not device.strip():
+            return {"msg_type": "error", "error": "Invalid device"}
+        if not isinstance(gateway, str):
+            return {"msg_type": "error", "error": "Invalid gateway"}
+        if not isinstance(dns, list):
+            return {"msg_type": "error", "error": "Invalid dns (must be list)"}
+        if not isinstance(vpn_ip, str):
+            return {"msg_type": "error", "error": "Invalid vpn_ip"}
+
         try:
+            # 1. Create namespace
             metadata = await self.routing.create_tunnel_context(tunnel_name)
             namespace = metadata.get("namespace")
             if not namespace:
                 raise NamespaceError("No namespace returned")
+
+            # 2. Move device into namespace
+            try:
+                await self.routing.move_device_to_namespace(device, namespace)
+            except Exception as e:
+                # Cleanup namespace on failure
+                try:
+                    await self.routing.destroy_tunnel_context(tunnel_name, metadata)
+                except Exception:
+                    pass
+                logger.error(f"Failed to move device {device} to namespace {namespace}: {e}")
+                return {"msg_type": "error", "error": f"Device movement failed: {e}"}
+
+            # 3. Configure network inside namespace
+            try:
+                await self.routing.configure_namespace_network(
+                    namespace, device, vpn_ip, gateway, dns
+                )
+            except Exception as e:
+                # Attempt cleanup
+                try:
+                    await self.routing.destroy_tunnel_context(tunnel_name, metadata)
+                except Exception:
+                    pass
+                logger.error(f"Failed to configure network in namespace {namespace}: {e}")
+                return {"msg_type": "error", "error": f"Network configuration failed: {e}"}
+
             logger.info(f"Allocated namespace {namespace} for tunnel {tunnel_name} (adapter={adapter.adapter_type}, user={username})")
             # Track tunnel in adapter instance
             adapter.tunnels.add(tunnel_name)
@@ -174,6 +227,10 @@ class ResourceAllocator:
                 "msg_type": "allocated",
                 "tunnel_name": tunnel_name,
                 "namespace": namespace,
+                "device": device,
+                "gateway": gateway,
+                "dns": dns,
+                "vpn_ip": vpn_ip,
             }
         except Exception as e:
             logger.error(f"Allocation failed for tunnel {tunnel_name}: {e}")

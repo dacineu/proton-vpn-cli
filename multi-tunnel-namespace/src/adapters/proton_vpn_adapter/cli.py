@@ -72,7 +72,10 @@ async def create_tunnel(request: dict, writer: asyncio.StreamWriter) -> None:
         allocate_req = {
             'msg_type': 'allocate',
             'tunnel_name': tunnel_name,
-            'config': config,
+            'device': tunnel.device,
+            'gateway': tunnel.gateway,
+            'dns': tunnel.dns_servers or [],
+            'vpn_ip': tunnel.vpn_ip,
             'username': adapter_username
         }
         try:

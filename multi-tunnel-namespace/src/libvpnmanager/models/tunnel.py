@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from .status import TunnelStatus
 
@@ -25,6 +25,9 @@ class Tunnel:
         session_name: Session identifier (for multi-session adapters)
         username: OS username who owns this tunnel
         status: Connection status (computed from device if not provided)
+        gateway: VPN gateway IP address (assigned by server)
+        dns_servers: List of DNS server IPs provided by VPN
+        vpn_ip: Client IP address assigned by VPN (the IP on the TUN device)
     """
 
     name: str
@@ -38,7 +41,9 @@ class Tunnel:
     metadata: Dict[str, Any] = field(default_factory=dict)
     session_name: Optional[str] = None
     username: Optional[str] = None
-    status: Optional[TunnelStatus] = None
+    gateway: Optional[str] = None
+    dns_servers: Optional[List[str]] = None
+    vpn_ip: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert tunnel to dictionary for D-Bus serialization."""
@@ -57,6 +62,12 @@ class Tunnel:
             result["connected_at"] = self.connected_at.isoformat()
         if self.metadata:
             result["metadata"] = self.metadata
+        if self.gateway:
+            result["gateway"] = self.gateway
+        if self.dns_servers:
+            result["dns_servers"] = self.dns_servers
+        if self.vpn_ip:
+            result["vpn_ip"] = self.vpn_ip
         return result
 
     @classmethod
@@ -69,6 +80,7 @@ class Tunnel:
             except (ValueError, TypeError):
                 connected_at = None
 
+        # Note: 'status' is computed, not stored; ignore if present
         return cls(
             name=data["name"],
             adapter=data["adapter"],
@@ -81,6 +93,9 @@ class Tunnel:
             metadata=data.get("metadata", {}),
             session_name=data.get("session_name"),
             username=data.get("username"),
+            gateway=data.get("gateway"),
+            dns_servers=data.get("dns_servers"),
+            vpn_ip=data.get("vpn_ip"),
         )
 
     @property

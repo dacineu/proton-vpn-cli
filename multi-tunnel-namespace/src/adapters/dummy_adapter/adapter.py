@@ -62,6 +62,9 @@ class DummyAdapter(VPNAdapter):
             namespace=None,
             endpoint="127.0.0.1:0",
             connected_at=datetime.now(),
+            gateway="10.8.0.1",  # dummy gateway
+            dns_servers=["1.1.1.1", "1.0.0.1"],  # dummy DNS
+            vpn_ip="10.8.0.2",  # dummy client IP
             metadata={"simulated": True},
         )
         self._tunnels[tunnel_name] = tunnel

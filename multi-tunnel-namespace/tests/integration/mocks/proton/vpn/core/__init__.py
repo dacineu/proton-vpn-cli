@@ -50,6 +50,7 @@ class MockVPNConnection:
         self._endpoint = f"{server.server_name}.proton.net"
         self._gateway = "10.7.0.1"
         self._dns_servers = ["1.1.1.1", "1.0.0.1"]
+        self._assigned_ip = "10.7.0.2"  # Client IP assigned by VPN server
         self._bytes_received = 0
         self._bytes_sent = 0
         self._connect_task: Optional[asyncio.Task] = None
@@ -74,6 +75,10 @@ class MockVPNConnection:
 
     def get_dns_servers(self) -> List[str]:
         return self._dns_servers.copy()
+
+    def get_assigned_ip(self) -> str:
+        """Return the client's assigned VPN IP address."""
+        return self._assigned_ip
 
     def get_statistics(self):
         """Return an object with bytes_in and bytes_out attributes."""
