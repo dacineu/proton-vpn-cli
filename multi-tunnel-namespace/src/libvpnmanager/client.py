@@ -5,6 +5,7 @@ It provides a convenient interface for CLI tools to communicate with the daemon.
 """
 
 import asyncio
+import json
 import os
 from typing import Dict, Any, List, Optional
 
@@ -256,6 +257,120 @@ class ManagerClient:
             raise TunnelError(f"IPC call failed: {e}") from e
 
     # Context manager support
+
+    async def __aenter__(self):
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.disconnect()
+
+
+class AdapterClient:
+    """
+    Direct client for communicating with a VPN adapter via its CLI endpoint.
+
+    Uses newline-delimited JSON (NDJSON) protocol over a Unix socket.
+    """
+
+    def __init__(self, endpoint: str, session_token: Optional[str] = None):
+        self.endpoint = endpoint
+        self.session_token = session_token
+        self._reader: Optional[asyncio.StreamReader] = None
+        self._writer: Optional[asyncio.StreamWriter] = None
+
+    async def connect(self) -> None:
+        """Connect to the adapter's CLI socket."""
+        path = self.endpoint.replace('unix://', '')
+        self._reader, self._writer = await asyncio.open_unix_connection(path)
+
+    async def disconnect(self) -> None:
+        """Disconnect from the adapter."""
+        if self._writer:
+            self._writer.close()
+            await self._writer.wait_closed()
+            self._writer = None
+            self._reader = None
+
+    async def create_tunnel(
+        self,
+        tunnel_name: str,
+        config: ConnectionConfig,
+        totp_code: Optional[str] = None
+    ) -> Tunnel:
+        """Create a new tunnel via the adapter."""
+        request = {
+            'action': 'CreateTunnel',
+            'tunnel_name': tunnel_name,
+            'config': config.to_dict(),
+        }
+        if self.session_token:
+            request['session_token'] = self.session_token
+        if totp_code:
+            request['totp_code'] = totp_code
+
+        self._writer.write(json.dumps(request).encode() + b'\n')
+        await self._writer.drain()
+
+        response_line = await self._reader.readline()
+        if not response_line:
+            raise TunnelError("No response from adapter")
+        response = json.loads(response_line.decode())
+
+        if response.get('status') == 'error':
+            raise TunnelError(response.get('error', 'Unknown error'))
+
+        return Tunnel.from_dict(response['tunnel'])
+
+    async def destroy_tunnel(self, tunnel_name: str) -> bool:
+        """Destroy a tunnel via the adapter."""
+        request = {'action': 'DestroyTunnel', 'tunnel_name': tunnel_name}
+        if self.session_token:
+            request['session_token'] = self.session_token
+
+        self._writer.write(json.dumps(request).encode() + b'\n')
+        await self._writer.drain()
+
+        response_line = await self._reader.readline()
+        if not response_line:
+            raise TunnelError("No response from adapter")
+        response = json.loads(response_line.decode())
+
+        return response.get('status') == 'success'
+
+    async def list_tunnels(self) -> List[Tunnel]:
+        """List all tunnels from the adapter."""
+        request = {'action': 'ListTunnels'}
+        if self.session_token:
+            request['session_token'] = self.session_token
+
+        self._writer.write(json.dumps(request).encode() + b'\n')
+        await self._writer.drain()
+
+        response_line = await self._reader.readline()
+        if not response_line:
+            raise TunnelError("No response from adapter")
+        response = json.loads(response_line.decode())
+
+        tunnels = [Tunnel.from_dict(t) for t in response.get('tunnels', [])]
+        return tunnels
+
+    async def get_status(self, tunnel_name: str) -> TunnelStatus:
+        """Get status of a specific tunnel."""
+        request = {'action': 'GetStatus', 'tunnel_name': tunnel_name}
+        if self.session_token:
+            request['session_token'] = self.session_token
+
+        self._writer.write(json.dumps(request).encode() + b'\n')
+        await self._writer.drain()
+
+        response_line = await self._reader.readline()
+        if not response_line:
+            raise TunnelError("No response from adapter")
+        response = json.loads(response_line.decode())
+
+        status_val = response.get('status', 'unknown')
+        return TunnelStatus(status_val)
 
     async def __aenter__(self):
         await self.connect()
