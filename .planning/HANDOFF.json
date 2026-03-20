@@ -1,0 +1,30 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-03-20T12:29:49.652Z",
+  "phase": "1",
+  "phase_name": "Foundation: Adapter Lifecycle & Core Protocol",
+  "phase_dir": "01-foundation",
+  "plan": null,
+  "task": null,
+  "total_tasks": null,
+  "status": "paused_before_planning",
+  "completed_tasks": [
+    {"id": 1, "name": "Capture phase context (discuss-phase)", "status": "done", "commit": "8ae5197"},
+    {"id": 2, "name": "Update requirements with TOTP 2FA design", "status": "done", "commit": "cc9c83b"}
+  ],
+  "remaining_tasks": [
+    {"id": 3, "name": "Plan Phase 1 (gsd:plan-phase 1)", "status": "not_started"},
+    {"id": 4, "name": "Execute Phase 1 plans (gsd:execute-phase 1)", "status": "not_started"}
+  ],
+  "blockers": [],
+  "human_actions_pending": [],
+  "decisions": [
+    {"decision": "Per-request TOTP 2FA", "rationale": "No session tokens; each CLI request includes fresh TOTP code. MTM stores TOTP secret encrypted, passes to adapter via stdin. Adapter validates on every CLI request. MTM validates on control messages.", "phase": "1"},
+    {"decision": "Socket paths: /run/mtm/adapters/{user}_{type}.sock and /run/mtm/control/{user}_{type}.sock", "rationale": "Per-adapter control socket with 0600 perms; SO_PEERCRED verification", "phase": "1"},
+    {"decision": "Adapter validates session_token only (not separate cli_2fa_token)", "rationale": "MTM already verified TOTP before spawning; adapter trust boundary established at spawn", "phase": "1"},
+    {"decision": "Credentials via stdin and zeroization after VPN login", "rationale": "Avoid /proc exposure; minimize credential lifetime in memory", "phase": "1"}
+  ],
+  "uncommitted_files": [".planning/config.json (modified)"],
+  "next_action": "Run /gsd:plan-phase 1 to create detailed implementation plans",
+  "context_notes": "Phase 1 context complete. Full TOTP per-request 2FA design captured. Ready to plan implementation: daemon adapter lifecycle, dual-socket pattern, dummy adapter with AllocateTunnel, token infrastructure."
+}
