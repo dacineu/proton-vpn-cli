@@ -167,7 +167,7 @@ The TOTP **secret** is stored only in MTM's encrypted keyring and is never expos
 
 ## Wave 2: TOTP Encryption Layer
 
-**Goal:** Implement TOTP-based encryption on all communication channels (CLI↔MTM, MTM↔Adapter, CLI↔Adapter). This encryption protects the TOTP code (and other metadata) during transmission, but note: the same TOTP code also serves as authentication for the VPN adapter when it connects to the VPN backend (via `vpn_credentials.twofa`). Encryption and verification are separate layers. Create utility functions and integrate into message flows.
+**Goal:** Implement TOTP-based encryption on all communication channels (CLI↔MTM, MTM↔Adapter, CLI↔Adapter). This encryption protects the TOTP code (and other metadata) during transmission. Note: the same TOTP code also serves a second, independent purpose — it is passed to the VPN adapter as `vpn_credentials.twofa` and used by the adapter to authenticate to Proton's VPN backend servers. These are two separate authentication flows (local MTM vs remote VPN backend) that happen to use the same TOTP secret. Encryption and verification are separate layers. Create utility functions and integrate into message flows.
 
 ### Plan 04-W2: Create TOTP crypto utility
 
