@@ -8,7 +8,7 @@
 
 Phase 4 finalizes v1.0 by hardening security (socket perms, SO_PEERCRED, credential sanitation), ensuring backward compatibility via D-Bus forwarding, completing integration tests, and consolidating documentation. Builds on Phases 1-3 patterns.
 
-**Primary recommendation:** Implement as opt-in via `--totp=off` default; use existing patterns from resource_allocator.py and dummy adapter CLI.
+**Primary recommendation:** Implement as automatic discovery: TOTP enabled if external service reachable, disabled otherwise; use existing patterns from resource_allocator.py and dummy adapter CLI.
 
 <user_constraints>
 ## User Constraints (from CONTEXT.md)
@@ -16,7 +16,7 @@ Phase 4 finalizes v1.0 by hardening security (socket perms, SO_PEERCRED, credent
 ### Locked Decisions
 
 **TOTP Security Layer (Dynamic Configuration)**
-- MTM daemon flag: `--totp=on|off` (default: `off`)
+- TOTP mode is auto-detected at startup via health check to external TOTP service
 - TOTP disabled when external PGP service unreachable (auto-fail safe)
 - System operates without TOTP when disabled/unreachable (no warnings)
 - This allows intranet-only deployments or admin opt-out
@@ -36,9 +36,9 @@ Phase 4 finalizes v1.0 by hardening security (socket perms, SO_PEERCRED, credent
   1. Legacy call arrives at D-Bus service
   2. If adapter not running, call `StartAdapter` (with session token handling)
   3. Forward request to adapter via control socket (transparent)
-- Legacy API respects `--totp` flag:
-  - `--totp=on`: Legacy calls must include session token (same as new API)
-  - `--totp=off`: Legacy calls accepted without session token (backward compatible)
+- Legacy API respects auto-detected TOTP mode:
+  - TOTP enabled: Legacy calls must include session token (same as new API)
+  - TOTP disabled: Legacy calls accepted without session token (backward compatible)
 - No deprecation warnings in this release
 
 **Socket Permissions & Authenticity**
@@ -72,7 +72,7 @@ Phase 4 finalizes v1.0 by hardening security (socket perms, SO_PEERCRED, credent
 
 **Deferred Ideas**
 - Full TOTP encryption implementation details (HKDF vs direct use)
-- Runtime reconfiguration of `--totp` (hot-reload) — requires daemon restart
+- Runtime reconfiguration of TOTP mode (hot-reload) — requires daemon restart
 - External PGP service client fallback chain (multiple PGP servers)
 - Advanced threat model: encrypt process memory against swap, use `mlock`
 - CLI subcommand to manually refresh TOTP secret from PGP service
@@ -281,9 +281,9 @@ Or `ctypes.memset(ctypes.addressof(ctypes.c_char.from_buffer(buf)), 0, len(buf))
 
 ### Pitfall 6: Legacy API Incompatibility
 
-**What:** Legacy callers break when `--totp=on` because they lack `session_token`.
+**What:** Legacy callers break when TOTP enabled because they lack `session_token`.
 
-**How:** Honor `--totp` flag:
+**How:** Honor auto-detected TOTP mode:
 - `off`: accept calls without token
 - `on`: require token; return error `NEED_SESSION` if missing (caller should call `Verify2FA`)
 
@@ -460,7 +460,7 @@ async def test_adapter_socket_mode(manager_client, dummy_credentials):
 
 Summary:
 - Unix socket security: umask for 0600/0660; SO_PEERCRED already in resource_allocator.py
-- Backward compatibility: Legacy D-Bus methods forward to AdapterClient; respect `--totp` flag
+- Backward compatibility: Legacy D-Bus methods forward to AdapterClient; respect auto-detected TOTP mode
 - Integration testing: use existing fixtures; create stubs for SEC-*, COMP-*
 - TOTP encryption: use pyotp; 6-digit code as key acceptable for local IPC threat model
 - Credential sanitation: bytearray buffers, zero after use, stdin only

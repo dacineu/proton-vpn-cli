@@ -29,13 +29,18 @@ Harden security boundaries, ensure full backward compatibility of legacy API, co
 <decisions>
 ## Implementation Decisions
 
-### TOTP Security Layer (Dynamic Configuration)
+### TOTP Security Layer (Automatic Discovery)
 
-- MTM daemon flag: `--totp=on|off` (default: `off`)
-- TOTP disabled when external PGP service unreachable (auto-fail safe)
-- System operates without TOTP when disabled/unreachable (no warnings)
-- Users may still be prompted for TOTP code if service reachable; if service not reachable, connection proceeds without TOTP check
-- This allows intranet-only deployments or admin opt-out
+- **No `--totp` flag** — TOTP mode is automatically enabled if an external TOTP service (OpenPGP, etc.) is reachable at daemon startup
+- Daemon performs health check against configured TOTP service URL(s) during initialization
+- If service reachable and returns healthy response → TOTP mode **enabled**
+- If service unreachable or unhealthy → TOTP mode **disabled**, daemon logs warning and continues without TOTP
+- No user configuration needed; system adapts to environment
+- This design supports:
+  - Intranet-only deployments (no external service) → TOTP off
+  - Production with TOTP service → TOTP on automatically
+  - Future multi-service configuration (try multiple endpoints)
+- Backward compatibility: all code paths handle both modes gracefully
 
 ### TOTP Encryption Model
 
@@ -45,7 +50,7 @@ Harden security boundaries, ensure full backward compatibility of legacy API, co
   - CLI ↔ Adapter (tunnel operations)
 - Key derivation: Use TOTP directly (no HKDF) — current 6-digit code converted to bytes, possibly zero-padded to 16/32 bytes
 - Single TOTP secret per user; each adapter session uses same TOTP per session
-- TOTP secrets **not stored** in MTM: downloaded from external PGP service on-demand, kept in memory transiently
+- TOTP secrets **not stored** in MTM: downloaded from external TOTP service on-demand, kept in memory transiently
 - If external service unreachable during operation, fall back to unencrypted mode (system continues to function)
 
 ### Legacy D-Bus API Forwarding
@@ -53,11 +58,11 @@ Harden security boundaries, ensure full backward compatibility of legacy API, co
 - Legacy D-Bus methods (`CreateTunnel`, `ConnectTunnel`, `DisconnectTunnel`, `DestroyTunnel`, `ListTunnels`, `GetTunnelStatus`) preserved
 - Implementation forwards internally:
   1. Legacy call arrives at D-Bus service
-  2. If adapter not running, call `StartAdapter` (with session token handling)
+  2. If adapter not running, call `StartAdapter` (with session token handling if TOTP mode is enabled)
   3. Forward request to adapter via control socket (transparent to caller)
-- Legacy API respects `--totp` flag:
-  - When `--totp=on`: Legacy calls must include session token (same as new API)
-  - When `--totp=off`: Legacy calls accepted without session token (backward compatible)
+- Legacy API respects TOTP mode:
+  - When TOTP mode enabled (external service reachable): Legacy calls must include session token (same as new API)
+  - When TOTP mode disabled (no external service): Legacy calls accepted without session token (backward compatible)
 - No deprecation warnings in this release (silent operation)
 
 ### Socket Permissions & Authenticity
@@ -84,13 +89,15 @@ Harden security boundaries, ensure full backward compatibility of legacy API, co
 - Migration guide (DOC-02) placed in `docs/developer/` as it explains session persistence removal and system changes
 - Developer adapter implementation guide (DOC-03) either extracted from `ADAPTER_INTEGRATION.md` or referenced directly if already complete
 
-### Keyring & PGP Service Integration (Plan Item)
+### Keyring & TOTP Service Integration (Plan Item)
 
 - Use `keyring` Python package for keyring access (cross-platform abstraction)
-- External PGP service stores per-user TOTP secrets; MTM downloads on-demand during user session setup
+- External TOTP service (e.g., OpenPGP server, Proton authentication API) stores per-user TOTP secrets; MTM downloads on-demand during adapter spawn
 - TOTP secrets remain only in transient memory; zeroized after use or on shutdown
-- Plan includes task to "harden keyring integration with external PGP service" (add to Phase 4 plan)
-- No local persistence of TOTP secrets; if external service unavailable, TOTP layer stays disabled
+- **Automatic discovery:** Daemon checks service health at startup via configurable endpoint(s); if reachable, TOTP mode enabled
+- Configuration: TOTP service URL(s) can be set via environment variable (`PROTONVPN_TOTP_SERVICE_URL`) or config file (`/etc/protonvpn/totp-service.conf`)
+- Plan includes task to "implement TOTP service health check and automatic mode detection" (add to Phase 4 plan)
+- No local persistence of TOTP secrets; if external service unavailable, TOTP layer stays disabled automatically
 
 ---
 
@@ -129,23 +136,23 @@ Harden security boundaries, ensure full backward compatibility of legacy API, co
 ### Reusable Assets
 
 - `daemon/resource_allocator.py` — Already implements `SO_PEERCRED` authentication for control socket; need to add TOTP validation per request
-- `daemon/daemon.py` — Main daemon; need to add `--totp` flag parsing and external PGP service client integration
+- `daemon/daemon.py` — Main daemon; need to add automatic TOTP mode detection and external TOTP service client integration
 - `libvpnmanager/ipc/unix_socket.py` — Unix socket server/client with permissions; socket mode already 0600/0660
 - `libvpnmanager/sessions/manager.py` — Session storage; may need modification to avoid TOTP secret persistence
 - `libvpnmanager/dbus/service.py` — D-Bus service with legacy methods; will implement forwarding to adapter
 
 ### Established Patterns
 
-- Async I/O with `asyncio` throughout; need to keep non-blocking for external PGP calls
+- Async I/O with `asyncio` throughout; need to keep non-blocking for external TOTP service calls
 - NDJSON framing for control channel (length-prefixed JSON actually); reuse for encryption layer
 - Token-based session authentication (Phase 1): adapter stores `expected_session_token`; can extend with TOTP
 - Dummy adapter pattern provides reference for dual-server architecture
 
 ### Integration Points
 
-- New `--totp` flag on `VPNDaemon.__init__` and command-line entry point
-- External PGP service client: new module `mtm/pgp_service.py` (or similar)
-- Modified `start_adapter`: download user's TOTP secret from PGP service before spawn, pass to adapter via stdin (already includes stdin mechanism)
+- Automatic TOTP mode detection in VPNDaemon startup (no command-line flag)
+- External TOTP service client: new module `mtm/totp_service.py` (or similar)
+- Modified `start_adapter`: download user's TOTP secret from TOTP service before spawn, pass to adapter via stdin (already includes stdin mechanism)
 - Adapter stdin payload augmentation: include `totp_secret` (already in Phase 1 spec but not implemented)
 - Control socket handler (`ResourceAllocator._dispatch`): add TOTP verification per message using stored secret
 - Adapter CLI request handler: validate TOTP on each CLI→Adapter message
@@ -159,7 +166,7 @@ Harden security boundaries, ensure full backward compatibility of legacy API, co
 ## Specific Ideas
 
 - TOTP encryption should be "transparent" — existing message formats unchanged; payload encrypted/decrypted at transport layer (like TLS with TOTP as pre-shared key)
-- When external PGP service down, MTM logs a warning at startup but continues to run with TOTP disabled; no blocking startup failure
+- When external TOTP service down, MTM logs a warning at startup but continues to run with TOTP disabled; no blocking startup failure
 - Migration guide should clearly state: "Session persistence removed; you must log in after each adapter restart" along with TOTP changes
 - Developer docs should include an "Adapter Implementation Checklist" covering: dual-server, stdin credentials, TOTP validation, namespace coordination, crash handling
 
@@ -171,10 +178,10 @@ Harden security boundaries, ensure full backward compatibility of legacy API, co
 ## Deferred Ideas
 
 - Full TOTP encryption implementation details (HKDF vs direct use) left to planner/researcher discretion
-- Runtime reconfiguration of `--totp` (hot-reload) — out of scope; requires daemon restart
-- External PGP service client fallback chain (multiple PGP servers) — simplified to single service; add later if needed
+- Runtime reconfiguration of TOTP mode (hot-reload) — out of scope; requires daemon restart
+- External TOTP service client fallback chain (multiple endpoints) — simplified to single service; add later if needed
 - Advanced threat model: encrypt process memory against swap, use `mlock` — defer to security audit post-v1.0
-- CLI subcommand to manually refresh TOTP secret from PGP service — not needed; automatic on adapter spawn
+- CLI subcommand to manually refresh TOTP secret from TOTP service — not needed; automatic on adapter spawn
 
 ---
 
