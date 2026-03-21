@@ -9,12 +9,15 @@
 
 ⚠️ **Do not confuse these:**
 
-| Layer | Purpose | Who authenticates? | Where secret stored? |
-|-------|---------|-------------------|---------------------|
-| **MTM/CLI 2FA** | Authorize user to control the local Multi-Tunnel Manager | User → MTM daemon | Encrypted in system keyring (libsecret) |
-| **VPN Adapter 2FA** | Authenticate adapter to Proton's VPN backend | Adapter → Proton API | Never stored; used ephemerally in adapter memory |
+| Layer | Purpose | Is it mandatory? | Who authenticates? | Where secret stored? |
+|-------|---------|------------------|-------------------|---------------------|
+| **MTM 2FA** | Authorize user to control the local Multi-Tunnel Manager | Yes (unless `--totp=off`) | User → MTM daemon | Encrypted in system keyring (libsecret) |
+| **VPN Adapter 2FA** | Authenticate adapter to the VPN backend (e.g., Proton VPN) | **No** — only if the VPN service requires it | Adapter → VPN backend API | Never stored; used ephemerally in adapter memory |
 
-**Key difference:** MTM 2FA protects your local system control. VPN Adapter 2FA authenticates the adapter to Proton's VPN gateways. They use the **same TOTP secret** but serve different purposes.
+**Key differences:**
+- **MTM 2FA** is a **local security boundary** — it protects your system from unauthorized control.
+- **VPN Adapter 2FA** is a **remote service requirement** — the VPN backend (like Proton's servers) may require 2FA based on the user's account settings. This is independent of the local MTM 2FA.
+- Both layers use the **same TOTP secret**, but they are **separate, independent authentications** to different entities (local daemon vs remote VPN service).
 
 ---
 
@@ -166,11 +169,14 @@ protonvpn 2fa setup --download-key
 └────────────────────────────────────────────┘
 ```
 
-**Key insight:** One TOTP code provides **two distinct authentications**:
-- ✅ Proves you control the OTP device to your **local MTM**
-- ✅ Proves you control the Proton account to **Proton's VPN backend**
+**Key insight:** One TOTP code provides **two independent authentications**:
 
-If either verification fails, the operation is rejected.
+| Authentication | When is it required? | What happens if it fails? |
+|----------------|---------------------|---------------------------|
+| **MTM (local)** | Always (unless `--totp=off`) | Operation rejected — user not authorized to control the system |
+| **VPN adapter (backend)** | Only if the VPN service requires 2FA for this account | VPN login fails — adapter cannot establish tunnel |
+
+If either verification fails, the operation is rejected. They are **independent security layers**: local system protection and remote service authentication.
 
 ---
 
@@ -189,9 +195,9 @@ CLI prompts:
 TOTP Code: █
 ```
 
-**Note:** This single TOTP code serves **dual purposes**:
-- **MTM authentication** (local control authorization)
-- **VPN adapter authentication** (for Proton's VPN backend, if required)
+**Note:** This single TOTP code serves **two independent authentications**:
+- **MTM authentication** (local control — **always required** unless `--totp=off`)
+- **VPN adapter authentication** (remote VPN backend — **only if the VPN service requires 2FA** for this account)
 
 User enters current 6-digit code (e.g., `123456`).
 
@@ -204,7 +210,7 @@ CLI calls MTM D-Bus:
     "credentials": {
       "username": "user@proton.me",
       "password": "•••••••",
-      "twofa": "123456"  // for VPN adapter authentication if required
+      "twofa": "123456"  // optional: for VPN adapter authentication if the VPN backend requires it
     },
     "totp_code": "123456"  // for MTM authentication
   }
@@ -293,8 +299,8 @@ TOTP Code: █
 ```
 
 This same TOTP code will be used for:
-- **Adapter → MTM control verification** (MTM 2FA)
-- **VPN adapter authentication** if required (for VPN backend)
+- **Adapter → MTM control verification** (MTM 2FA) — always required
+- **VPN adapter authentication** (VPN backend 2FA) — only if the VPN service (e.g., Proton VPN) requires 2FA for this account; otherwise the field may be ignored
 
 User enters new code (e.g., `654321`).
 
