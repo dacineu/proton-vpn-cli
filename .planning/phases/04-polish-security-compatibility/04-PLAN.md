@@ -11,7 +11,7 @@
 
 The TOTP code entered by the user serves **two distinct authentications**:
 1. **MTM authentication** — local daemon verifies user is authorized to control the system
-2. **VPN service authentication** — adapter uses same code to authenticate to Proton's VPN backend
+2. **VPN adapter authentication** — adapter uses same code to authenticate to Proton's VPN backend
 
 The TOTP **secret** is stored only in MTM's encrypted keyring and is never exposed to CLI or adapter persistently. This design ensures end-to-end verification and eliminates session token vulnerabilities.
 
@@ -167,7 +167,7 @@ The TOTP **secret** is stored only in MTM's encrypted keyring and is never expos
 
 ## Wave 2: TOTP Encryption Layer
 
-**Goal:** Implement TOTP-based encryption on all communication channels (CLI↔MTM, MTM↔Adapter, CLI↔Adapter). This encryption protects the TOTP code (and other metadata) during transmission, but note: the same TOTP code also serves as authentication for the VPN service (via `vpn_credentials.twofa`). Encryption and verification are separate layers. Create utility functions and integrate into message flows.
+**Goal:** Implement TOTP-based encryption on all communication channels (CLI↔MTM, MTM↔Adapter, CLI↔Adapter). This encryption protects the TOTP code (and other metadata) during transmission, but note: the same TOTP code also serves as authentication for the VPN adapter when it connects to the VPN backend (via `vpn_credentials.twofa`). Encryption and verification are separate layers. Create utility functions and integrate into message flows.
 
 ### Plan 04-W2: Create TOTP crypto utility
 

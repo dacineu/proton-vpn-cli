@@ -12,9 +12,9 @@
 | Layer | Purpose | Who authenticates? | Where secret stored? |
 |-------|---------|-------------------|---------------------|
 | **MTM/CLI 2FA** | Authorize user to control the local Multi-Tunnel Manager | User → MTM daemon | Encrypted in system keyring (libsecret) |
-| **VPN Service 2FA** | Authenticate user to Proton's VPN backend servers | Adapter → Proton API | Never stored; used ephemerally in adapter memory |
+| **VPN Adapter 2FA** | Authenticate adapter to Proton's VPN backend | Adapter → Proton API | Never stored; used ephemerally in adapter memory |
 
-**Key difference:** MTM 2FA protects your local system control. VPN Service 2FA protects your Proton account access to VPN gateways. They use the **same TOTP secret** but serve different purposes.
+**Key difference:** MTM 2FA protects your local system control. VPN Adapter 2FA authenticates the adapter to Proton's VPN gateways. They use the **same TOTP secret** but serve different purposes.
 
 ---
 
@@ -155,8 +155,8 @@ protonvpn 2fa setup --download-key
 │  └─────────────────────────────────────┘  │
 │                                            │
 │  ┌─────────────────────────────────────┐  │
-│  │  VPN SERVICE AUTHENTICATION (Remote)│  │
-│  │  • Adapter → Proton API with        │  │
+│  │  VPN ADAPTER AUTHENTICATION (Backend)│  │
+│  │  • Adapter → Proton VPN API with    │  │
 │  │    vpn_credentials.twofa = "123456"│  │
 │  │  • Proton verifies TOTP             │  │
 │  │  • Grants: VPN session, server      │  │
@@ -168,7 +168,7 @@ protonvpn 2fa setup --download-key
 
 **Key insight:** One TOTP code provides **two distinct authentications**:
 - ✅ Proves you control the OTP device to your **local MTM**
-- ✅ Proves you control the Proton account to **VPN backend servers**
+- ✅ Proves you control the Proton account to **Proton's VPN backend**
 
 If either verification fails, the operation is rejected.
 
@@ -191,7 +191,7 @@ TOTP Code: █
 
 **Note:** This single TOTP code serves **dual purposes**:
 - **MTM authentication** (local control authorization)
-- **VPN service authentication** (if Proton's backend requires it)
+- **VPN adapter authentication** (for Proton's VPN backend, if required)
 
 User enters current 6-digit code (e.g., `123456`).
 
@@ -204,7 +204,7 @@ CLI calls MTM D-Bus:
     "credentials": {
       "username": "user@proton.me",
       "password": "•••••••",
-      "twofa": "123456"  // for VPN service if required
+      "twofa": "123456"  // for VPN adapter authentication if required
     },
     "totp_code": "123456"  // for MTM authentication
   }
@@ -257,7 +257,7 @@ Adapter:
 1. Reads stdin JSON (blocking until complete)
 2. Extracts:
    - `totp_secret` → store in memory for TOTP verification
-   - `vpn_credentials` → use to login to VPN service
+   - `vpn_credentials` → use to authenticate to the VPN backend
    - `session_id` → use in control messages
 3. **Zero stdin buffer** immediately after reading (overwrite with null bytes)
 4. Binds CLI Unix socket (start asyncio server)
@@ -274,8 +274,8 @@ Adapter:
    MTM adds to `adapter_pool[(adapter_type, vpn_username)] = AdapterProcess(...)`
 7. Performs VPN login using `vpn_credentials`
    - The `vpn_credentials.twofa` field contains the same TOTP code from the CLI request
-   - This authenticates the user to Proton's VPN backend (VPN Service 2FA)
-   - If VPN service doesn't require 2FA for this account, the field may be empty or omitted
+   - This authenticates the user to Proton's VPN backend (VPN adapter authentication)
+   - If the VPN backend doesn't require 2FA for this account, the field may be empty or omitted
 8. After successful login:
    - Zero credential buffers (password, 2FA for VPN)
    - Keep only VPN session tokens
@@ -294,7 +294,7 @@ TOTP Code: █
 
 This same TOTP code will be used for:
 - **Adapter → MTM control verification** (MTM 2FA)
-- **VPN service authentication** if required (VPN 2FA)
+- **VPN adapter authentication** if required (for VPN backend)
 
 User enters new code (e.g., `654321`).
 
