@@ -1,7 +1,7 @@
 # 2FA Authentication in Multi-Tunnel System
 
-**Status:** Final design — Phase 1 implementation
-**Last updated:** 2025-03-20
+**Status:** Final design — Phase 1 implementation, with Phase 4 external service integration
+**Last updated:** 2025-03-21
 
 ---
 
@@ -32,6 +32,8 @@ Code changes every 30 seconds.
 
 ## Setup Phase (One-Time)
 
+### Option A: Generate New TOTP Secret (Current)
+
 User runs:
 ```bash
 protonvpn 2fa setup --scan-qr
@@ -61,6 +63,62 @@ protonvpn 2fa setup --scan-qr
 - Confirm setup by entering current code
 
 **Security:** TOTP secret never displayed again after setup. Cannot be retrieved from MTM; only reset via backup codes or admin intervention.
+
+---
+
+### Option B: Import TOTP Secret from External Service (Planned for Phase 4)
+
+For users migrating from other systems or enterprise environments where TOTP secrets are centrally managed, the CLI supports importing pre-existing TOTP keys from Proton's external authentication service.
+
+User runs:
+```bash
+protonvpn 2fa setup --download-key
+```
+
+**Flow:**
+
+1. CLI prompts for Proton account credentials (username/password)
+2. CLI authenticates with Proton's authentication API over secure TLS
+3. Proton API returns the user's existing TOTP secret (if 2FA is already enabled on the account)
+   - The secret is delivered via an encrypted channel using the user's session token
+   - The API response includes metadata: `{"secret": "JBSWY3DPEHPK3PXP", "method": "totp", "backup_codes": [...]}`
+4. CLI **never stores** the secret; it streams directly to MTM via D-Bus:
+   ```json
+   {
+     "method": "Import2FASecret",
+     "params": {
+       "totp_secret": "JBSWY3DPEHPK3PXP",
+       "source": "proton_api"
+     }
+   }
+   ```
+5. MTM:
+   - Validates the secret by computing a test TOTP and verifying with Proton's API (optional challenge-response)
+   - Stores encrypted in system keyring (same as Option A)
+   - Generates new backup codes (since old ones may be compromised in transit)
+   - Prompts user to verify by entering a current TOTP code from their existing device
+6. After verification, MTM confirms setup to CLI
+
+**Security considerations:**
+- **Transport security:** All communication with Proton API uses TLS 1.3+ with certificate pinning
+- **Secret exposure:** TOTP secret lives in CLI memory only transiently during import; zeroed immediately after streaming to MTM
+- **Verification required:** Even imported secrets must be verified with a live TOTP code to confirm the user possesses the OTP device
+- **Backup code rotation:** New backup codes are generated to prevent reuse of potentially exposed codes
+- **Audit trail:** Import operation is logged in MTM audit log with source identification
+
+**Implementation notes:**
+- The Proton API endpoint: `POST /v2/2fa/secret` (authenticated session required)
+- Rate limiting: 3 import attempts per hour to prevent abuse
+- Fallback: If import fails (e.g., user doesn't have 2FA on Proton account), MTM returns `2FA_IMPORT_FAILED` with guidance
+
+---
+
+**Security:** Regardless of method, the TOTP secret is:
+- Never stored in plaintext on disk (always encrypted in keyring)
+- Never displayed to the user after initial setup/import
+- Never transmitted after initial provisioning
+- Zeroed from memory when possible
+- Only accessible to MTM and adapter processes with appropriate Unix socket permissions
 
 ---
 
@@ -307,6 +365,12 @@ CLI prints to user:
 - Used when OTP device lost
 - CLI calls `protonvpn 2fa backup --use CODE12345` to authenticate instead of TOTP
 - MTM marks backup code as used after successful auth
+
+**2FA Import failures:**
+- `2FA_IMPORT_FAILED` — API call to Proton failed (network error, auth failure, or user not enrolled)
+- `2FA_IMPORT_VERIFICATION_FAILED` — User failed to provide valid TOTP after import (3 attempts max)
+- `2FA_IMPORT_RATE_LIMITED` — Too many import attempts; user must wait or use manual method
+- CLI displays actionable guidance: check credentials, verify 2FA is enabled on account, retry after cooldown
 
 ---
 
