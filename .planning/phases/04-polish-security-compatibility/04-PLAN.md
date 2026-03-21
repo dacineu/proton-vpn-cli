@@ -1,8 +1,22 @@
 # Phase 4 Plan: Polish, Security & Compatibility
 
 **Created:** 2025-03-21
+**Last Updated:** 2025-03-21 (2FA/TOTP clarification)
 **Status:** Ready for execution
 **Requirements:** 11 total (COMP-01, COMP-02, SEC-01, SEC-02, SEC-03, SEC-08, TST-01, TST-02, TST-03, DOC-01, DOC-02, DOC-03)
+
+---
+
+## Important: Dual-Purpose 2FA
+
+The TOTP code entered by the user serves **two distinct authentications**:
+1. **MTM authentication** — local daemon verifies user is authorized to control the system
+2. **VPN service authentication** — adapter uses same code to authenticate to Proton's VPN backend
+
+The TOTP **secret** is stored only in MTM's encrypted keyring and is never exposed to CLI or adapter persistently. This design ensures end-to-end verification and eliminates session token vulnerabilities.
+
+---
+
 
 ---
 
@@ -53,16 +67,69 @@
 
 4. **Add PGP service client stub module**
    - `<read_first>`: `.planning/phases/04-polish-security-compatibility/04-CONTEXT.md`
-   - `<action>`: Create `multi-tunnel-namespace/src/daemon/pgp_service.py`:
+   - `<action>`: Create `multi-tunnel-namespace/src/daemon/pgp_service.py` with a detailed stub:
      ```python
-     """PGP service client for TOTP secret retrieval (stub)."""
+     """PGP service client for TOTP secret retrieval.
+
+     This client communicates with Proton's external authentication service
+     to fetch the user's TOTP secret on-demand during adapter spawn.
+
+     Implementation notes for production:
+     - Use aiohttp or httpx for async HTTPS requests with certificate pinning
+     - Retrieve user's session token from system keyring (libsecret) using
+       the stored credentials from prior login
+     - Endpoint: POST /v2/2fa/secret (or as configured in pyproject.toml)
+     - Expected response: {"secret": "JBSWY3DPEHPK3PXP", "method": "totp"}
+     - Return value: raw secret bytes (base64-decoded)
+     - Errors: raise specific exceptions:
+       * PGPServiceUnavailable (network error, timeout)
+       * PGPAuthFailed (invalid/missing session token)
+       * UserNotEnrolled (2FA not enabled on account)
+       * RateLimited (too many requests; include retry-after)
+     - Rate limiting: client should enforce max 3 requests per minute per user
+     - Retry: exponential backoff for transient failures (max 3 attempts)
+     - Fallback: on any exception, daemon logs warning and proceeds without TOTP
+       (totp_enabled effectively off for this spawn)
+     """
+     import logging
+     logger = logging.getLogger(__name__)
+
+     class PGPServiceError(Exception):
+         """Base class for PGP service errors."""
+
+     class PGPServiceUnavailable(PGPServiceError):
+         """Service unreachable or timeout."""
+
+     class PGPAuthFailed(PGPServiceError):
+         """Authentication to PGP service failed."""
+
+     class UserNotEnrolled(PGPServiceError):
+         """User does not have 2FA enabled on account."""
+
+     class RateLimited(PGPServiceError):
+         """Rate limit exceeded; include retry_after attribute."""
+
      async def get_user_totp_secret(username: str) -> bytes:
-         """Download TOTP secret for user from external PGP service."""
+         """Download TOTP secret for user from external PGP service.
+
+         Args:
+             username: VPN account username (e.g., user@proton.me)
+
+         Returns:
+             Raw TOTP secret bytes (base64-decoded from API response)
+
+         Raises:
+             NotImplementedError: Stub not implemented.
+             PGPServiceError: On service errors (see subclass exceptions).
+         """
          raise NotImplementedError("PGP service integration stub")
      ```
    - `<acceptance_criteria>`:
-     - File `src/daemon/pgp_service.py` exists
-     - Contains `async def get_user_totp_secret(username: str) -> bytes:` that raises `NotImplementedError`
+     - File `src/daemon/pgp_service.py` exists with the above content (or equivalent)
+     - Defines `async def get_user_totp_secret(username: str) -> bytes`
+     - Defines at least the exception classes: `PGPServiceError`, `PGPServiceUnavailable`, `PGPAuthFailed`, `UserNotEnrolled`, `RateLimited`
+     - Function raises `NotImplementedError`
+     - Docstring mentions key implementation notes: HTTPS, certificate pinning, keyring session token, rate limiting, fallback behavior
 
 5. **Add keyring dependency**
    - `<read_first>`: `multi-tunnel-namespace/src/pyproject.toml`
@@ -100,7 +167,7 @@
 
 ## Wave 2: TOTP Encryption Layer
 
-**Goal:** Implement TOTP-based encryption on all communication channels (CLI↔MTM, MTM↔Adapter, CLI↔Adapter). Create utility functions and integrate into message flows.
+**Goal:** Implement TOTP-based encryption on all communication channels (CLI↔MTM, MTM↔Adapter, CLI↔Adapter). This encryption protects the TOTP code (and other metadata) during transmission, but note: the same TOTP code also serves as authentication for the VPN service (via `vpn_credentials.twofa`). Encryption and verification are separate layers. Create utility functions and integrate into message flows.
 
 ### Plan 04-W2: Create TOTP crypto utility
 
